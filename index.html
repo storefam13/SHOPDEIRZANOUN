@@ -428,12 +428,39 @@ input,select,textarea{font-family:inherit;font-size:16px}
 .cb-after{font-size:12.5px;color:var(--muted);margin-top:6px;padding-top:6px;border-top:1px dashed rgba(0,0,0,.12)}
 .cb-after b{color:var(--ink);font-weight:800}
 
+/* ---------- Barcode input + scan button ---------- */
+.bc-wrap{display:flex;gap:8px;align-items:stretch}
+.bc-wrap .in,.bc-wrap input{flex:1}
+.bc-scan-btn{flex-shrink:0;width:52px;border-radius:var(--r-sm);border:1.5px solid var(--brand-2);background:var(--brand-soft);color:var(--brand-2);font-size:22px;display:grid;place-items:center;transition:.15s}
+.bc-scan-btn:active{transform:scale(.93);background:var(--brand-2);color:#fff}
+
+/* ---------- Camera scanner modal ---------- */
+.scan-modal{position:fixed;inset:0;z-index:120;background:rgba(8,18,14,.97);display:flex;flex-direction:column;animation:fade .2s ease}
+.scan-head{display:flex;align-items:center;justify-content:space-between;padding:calc(env(safe-area-inset-top) + 14px) 18px 14px;color:#fff;flex-shrink:0}
+.scan-title{font-weight:800;font-size:17px;display:flex;align-items:center;gap:8px}
+.scan-x{width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.14);color:#fff;font-size:17px;display:grid;place-items:center;transition:.15s}
+.scan-x:active{transform:scale(.9)}
+.scan-body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;gap:14px;overflow-y:auto}
+.scan-view{width:100%;max-width:400px;border-radius:18px;overflow:hidden;background:#000;box-shadow:0 10px 34px rgba(0,0,0,.45);position:relative;aspect-ratio:1/1}
+.scan-view video{width:100% !important;height:100% !important;object-fit:cover;display:block}
+.scan-view img{display:none !important}
+.scan-frame{position:absolute;inset:18% 12%;border:3px solid rgba(168,240,207,.9);border-radius:14px;box-shadow:0 0 0 2000px rgba(0,0,0,.28);pointer-events:none}
+.scan-laser{position:absolute;left:12%;right:12%;height:2px;background:linear-gradient(90deg,transparent,#27e08c,transparent);box-shadow:0 0 12px #27e08c;animation:laser 1.8s ease-in-out infinite;pointer-events:none}
+@keyframes laser{0%,100%{top:20%}50%{top:78%}}
+.scan-hint{color:#cfe9dd;font-weight:700;font-size:13.5px;text-align:center;max-width:380px}
+.scan-err{color:#ffd2c9;font-weight:700;font-size:14px;line-height:1.6;text-align:center;background:rgba(192,57,43,.18);border:1px solid rgba(255,120,100,.32);padding:16px 18px;border-radius:14px;max-width:380px}
+.scan-manual{display:flex;gap:8px;width:100%;max-width:400px;margin-top:2px}
+.scan-manual input{flex:1;padding:13px 14px;border-radius:12px;border:1.5px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);color:#fff;font-weight:700;font-size:16px;outline:none;direction:ltr;text-align:right}
+.scan-manual input::placeholder{color:rgba(255,255,255,.5);direction:rtl}
+.scan-manual input:focus{border-color:#27e08c;background:rgba(255,255,255,.12)}
+
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 /* Precompiled to plain JS (React.createElement) — no Babel; runs from file:// and GitHub Pages */
 "use strict";
@@ -1667,6 +1694,100 @@ function OMTAdj() {
                 tag: fDate(x.date), tagClass: x.type.indexOf('USD') >= 0 ? 't-usd' : x.type.indexOf('IN') === 0 ? 't-in' : 't-out', sub: mc(x.type.indexOf('USD') >= 0 ? 'USD' : 'LBP', x.amount), amt: '',
                 rows: [['النوع', x.type], ['المبلغ', mc(x.type.indexOf('USD') >= 0 ? 'USD' : 'LBP', x.amount)], ['التاريخ', fDate(x.date)]], del: () => { db.omtAdj = db.omtAdj.filter((y) => y.id !== x.id); } }) }));
 }
+/* ============================ BARCODE CAMERA SCANNER ============================ */
+function BarcodeScanner({ onScan, onClose }) {
+    const idRef = useRef('bcscan-' + Math.random().toString(36).slice(2));
+    const [err, setErr] = useState('');
+    const [manual, setManual] = useState('');
+    useEffect(() => {
+        let inst = null, done = false;
+        if (!window.Html5Qrcode) {
+            setErr('مكتبة الماسح ما تحمّلت. تأكد إنك متصل بالإنترنت وجرّب كمان مرة.');
+            return;
+        }
+        const host = location.hostname;
+        if (location.protocol !== 'https:' && host !== 'localhost' && host !== '127.0.0.1') {
+            setErr('الكاميرا بتشتغل بس على رابط HTTPS (متل GitHub Pages). إذا فاتح الملف من الجهاز مباشرة الكاميرا ما بتفتح — ارفعو ع GitHub Pages وافتحو من هناك.');
+            return;
+        }
+        const F = window.Html5QrcodeSupportedFormats;
+        const fmts = F ? [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39, F.CODE_93, F.CODABAR, F.ITF, F.QR_CODE] : undefined;
+        try {
+            inst = new Html5Qrcode(idRef.current, { formatsToSupport: fmts, verbose: false });
+        }
+        catch (e) {
+            setErr('ما قدرت ابدأ الماسح.');
+            return;
+        }
+        const cfg = { fps: 12, aspectRatio: 1, experimentalFeatures: { useBarCodeDetectorIfSupported: true } };
+        const ok = (txt) => {
+            if (done)
+                return;
+            done = true;
+            try {
+                if (navigator.vibrate)
+                    navigator.vibrate(60);
+            }
+            catch (e) { }
+            const code = String(txt).trim();
+            if (inst)
+                inst.stop().then(() => { try {
+                    inst.clear();
+                }
+                catch (e) { } onScan(code); }).catch(() => onScan(code));
+            else
+                onScan(code);
+        };
+        inst.start({ facingMode: 'environment' }, cfg, ok, () => { }).catch((e) => {
+            const m = ((e && (e.message || e.name)) || '') + '';
+            if (/NotAllowed|Permission|denied/i.test(m))
+                setErr('لازم تسمح للتطبيق يستعمل الكاميرا. روح ع إعدادات المتصفح، اسمح بالكاميرا لهالموقع، بعدين جرّب كمان مرة.');
+            else if (/NotFound|not found|no camera/i.test(m))
+                setErr('ما في كاميرا متاحة على هالجهاز.');
+            else if (/NotReadable|in use|TrackStart/i.test(m))
+                setErr('الكاميرا مشغولة بتطبيق تاني. سكّر باقي التطبيقات يلي عم تستعمل الكاميرا وجرّب.');
+            else
+                setErr('ما قدرت افتح الكاميرا. تأكد إنك سامح بالكاميرا لهالموقع.');
+        });
+        return () => {
+            done = true;
+            if (inst) {
+                try {
+                    inst.stop().then(() => { try {
+                        inst.clear();
+                    }
+                    catch (e) { } }).catch(() => { });
+                }
+                catch (e) { }
+            }
+        };
+    }, []);
+    const submitManual = () => { const v = manual.trim(); if (v)
+        onScan(v); };
+    return ReactDOM.createPortal(React.createElement("div", { className: "scan-modal" },
+        React.createElement("div", { className: "scan-head" },
+            React.createElement("div", { className: "scan-title" }, "\uD83D\uDCF7 \u0627\u0645\u0633\u062D \u0627\u0644\u0628\u0627\u0631\u0643\u0648\u062F"),
+            React.createElement("button", { className: "scan-x", onClick: onClose }, "\u2715")),
+        React.createElement("div", { className: "scan-body" },
+            err
+                ? React.createElement("div", { className: "scan-err" }, "\u26A0\uFE0F " + err)
+                : React.createElement(React.Fragment, null,
+                    React.createElement("div", { className: "scan-view" },
+                        React.createElement("div", { id: idRef.current, style: { width: '100%', height: '100%' } }),
+                        React.createElement("div", { className: "scan-frame" }),
+                        React.createElement("div", { className: "scan-laser" })),
+                    React.createElement("div", { className: "scan-hint" }, "\u0648\u062C\u0651\u0647 \u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627 \u0639\u0627\u0644\u0628\u0627\u0631\u0643\u0648\u062F \u0648\u062B\u0628\u0651\u062A \u0634\u0648\u064A")),
+            React.createElement("div", { className: "scan-manual" },
+                React.createElement("input", { value: manual, onChange: (e) => setManual(e.target.value), placeholder: "\u0623\u0648 \u0627\u0643\u062A\u0628 \u0627\u0644\u0631\u0642\u0645 \u064A\u062F\u0648\u064A\u0627\u064B", inputMode: "numeric", autoCapitalize: "off", onKeyDown: (e) => { if (e.key === 'Enter')
+                        submitManual(); } }),
+                React.createElement("button", { className: "btn btn-primary btn-sm", onClick: submitManual }, "\u062A\u0623\u0643\u064A\u062F")))), document.body);
+}
+function ScanBtn({ onScan }) {
+    const [open, setOpen] = useState(false);
+    return React.createElement(React.Fragment, null,
+        React.createElement("button", { type: "button", className: "bc-scan-btn", title: "\u0627\u0645\u0633\u062D \u0628\u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627", onClick: () => setOpen(true) }, "\uD83D\uDCF7"),
+        open && React.createElement(BarcodeScanner, { onClose: () => setOpen(false), onScan: (code) => { setOpen(false); onScan(code); } }));
+}
 /* ============================ INVENTORY (dual currency + qty stepper) ============================ */
 function Inventory({ storeKey }) {
     const db = useDB();
@@ -1727,17 +1848,28 @@ function InvEntry({ storeKey, kind }) {
     return React.createElement(React.Fragment, null,
         React.createElement("div", { className: "card" },
             React.createElement(Field, { label: "\u0628\u0627\u0631\u0643\u0648\u062F (\u0627\u0645\u0633\u062D \u0623\u0648 \u0627\u0643\u062A\u0628)" },
-                React.createElement("input", { placeholder: "\uD83D\uDD2D \u0627\u0645\u0633\u062D \u0627\u0644\u0628\u0627\u0631\u0643\u0648\u062F \u0644\u064A\u062E\u062A\u0627\u0631 \u0627\u0644\u0635\u0646\u0641", autoCapitalize: "off", onKeyDown: (e) => { if (e.key === 'Enter') {
-                        const v = e.target.value.trim();
-                        const it = (store.items || []).find((x) => x.code && String(x.code) === v);
-                        if (it) {
-                            setItem(it.name);
-                            ui.toast('تم: ' + it.name);
-                        }
-                        else if (v)
-                            ui.toast('ما لقيت صنف بهالباركود');
-                        e.target.value = '';
-                    } } })),
+                React.createElement("div", { className: "bc-wrap" },
+                    React.createElement("input", { placeholder: "\uD83D\uDD2D \u0627\u0645\u0633\u062D \u0627\u0644\u0628\u0627\u0631\u0643\u0648\u062F \u0644\u064A\u062E\u062A\u0627\u0631 \u0627\u0644\u0635\u0646\u0641", autoCapitalize: "off", onKeyDown: (e) => { if (e.key === 'Enter') {
+                                const v = e.target.value.trim();
+                                const it = (store.items || []).find((x) => x.code && String(x.code) === v);
+                                if (it) {
+                                    setItem(it.name);
+                                    ui.toast('تم: ' + it.name);
+                                }
+                                else if (v)
+                                    ui.toast('ما لقيت صنف بهالباركود');
+                                e.target.value = '';
+                            } } }),
+                    React.createElement(ScanBtn, { onScan: (code) => {
+                            const v = String(code).trim();
+                            const it = (store.items || []).find((x) => x.code && String(x.code) === v);
+                            if (it) {
+                                setItem(it.name);
+                                ui.toast('تم: ' + it.name);
+                            }
+                            else
+                                ui.toast('ما لقيت صنف بهالباركود — رقم: ' + v);
+                        } }))),
             React.createElement(Field, { label: "\u0627\u0644\u0635\u0646\u0641" },
                 React.createElement("select", { value: item, onChange: (e) => setItem(e.target.value) },
                     React.createElement("option", { value: "" }, "\u2014 \u0627\u062E\u062A\u0631 \u0627\u0644\u0635\u0646\u0641 \u2014"),
@@ -1854,7 +1986,9 @@ function InvItems({ storeKey }) {
             React.createElement(Field, { label: "\u0627\u0633\u0645 \u0627\u0644\u0635\u0646\u0641" },
                 React.createElement("input", { value: nm, onChange: (e) => setNm(e.target.value), placeholder: "\u0645\u062B\u0627\u0644: Glass Protection" })),
             React.createElement(Field, { label: "\u0628\u0627\u0631\u0643\u0648\u062F (\u0627\u062E\u062A\u064A\u0627\u0631\u064A)" },
-                React.createElement("input", { value: code, onChange: (e) => setCode(e.target.value), placeholder: "\u0627\u0645\u0633\u062D \u0623\u0648 \u0627\u0643\u062A\u0628 \u0627\u0644\u0628\u0627\u0631\u0643\u0648\u062F", autoCapitalize: "off" })),
+                React.createElement("div", { className: "bc-wrap" },
+                    React.createElement("input", { value: code, onChange: (e) => setCode(e.target.value), placeholder: "\u0627\u0645\u0633\u062D \u0623\u0648 \u0627\u0643\u062A\u0628 \u0627\u0644\u0628\u0627\u0631\u0643\u0648\u062F", autoCapitalize: "off" }),
+                    React.createElement(ScanBtn, { onScan: (c) => { setCode(String(c).trim()); ui.toast('انمسح الباركود \u2713'); } }))),
             React.createElement(Field, { label: "\u0627\u0644\u0641\u0626\u0629" },
                 React.createElement("input", { value: cat, onChange: (e) => setCat(e.target.value), placeholder: "\u0645\u062B\u0644\u0627\u064B: \u062D\u0645\u0627\u064A\u0627\u062A / \u0634\u0648\u0627\u062D\u0646 / \u0633\u0645\u0627\u0639\u0627\u062A", list: 'cats-' + storeKey }),
                 React.createElement("datalist", { id: 'cats-' + storeKey }, cats.map((c) => React.createElement("option", { key: c, value: c })))),
@@ -1877,7 +2011,7 @@ function InvItems({ storeKey }) {
 }
 function ItemSheet({ store, item, close }) {
     const ui = useUI();
-    const [nm, setNm] = useState(item.name), [cat, setCat] = useState(item.cat || ''), [img, setImg] = useState(item.img || '');
+    const [nm, setNm] = useState(item.name), [cat, setCat] = useState(item.cat || ''), [img, setImg] = useState(item.img || ''), [code, setCode] = useState(item.code || '');
     const cats = Array.from(new Set(store.items.map((it) => it.cat || ''))).filter(Boolean);
     const pickImg = (e) => { const f = e.target.files[0]; if (f)
         readImage(f, (d) => setImg(d)); };
@@ -1890,6 +2024,7 @@ function ItemSheet({ store, item, close }) {
         const oldName = item.name;
         item.name = v;
         item.cat = cat.trim();
+        item.code = code.trim();
         item.img = img;
         if (oldName !== v) {
             ['sales', 'purchases'].forEach(kk => store[kk].forEach((r) => { if (r.item === oldName)
@@ -1913,6 +2048,10 @@ function ItemSheet({ store, item, close }) {
         React.createElement(Field, { label: "\u0627\u0644\u0641\u0626\u0629" },
             React.createElement("input", { value: cat, onChange: (e) => setCat(e.target.value), list: "cats-edit" }),
             React.createElement("datalist", { id: "cats-edit" }, cats.map((c) => React.createElement("option", { key: c, value: c })))),
+        React.createElement(Field, { label: "\u0628\u0627\u0631\u0643\u0648\u062F (\u0627\u0645\u0633\u062D \u0623\u0648 \u0627\u0643\u062A\u0628)" },
+            React.createElement("div", { className: "bc-wrap" },
+                React.createElement("input", { value: code, onChange: (e) => setCode(e.target.value), placeholder: "\u0631\u0642\u0645 \u0627\u0644\u0628\u0627\u0631\u0643\u0648\u062F", autoCapitalize: "off" }),
+                React.createElement(ScanBtn, { onScan: (c) => { setCode(String(c).trim()); ui.toast('انمسح الباركود \u2713'); } }))),
         React.createElement(Field, { label: "\u0627\u0644\u0635\u0648\u0631\u0629" },
             React.createElement("div", { className: "img-pick" },
                 resolveImg(img) ? React.createElement("img", { src: resolveImg(img), className: "img-prev" }) : React.createElement("div", { className: "img-ph" }, "\uD83D\uDCF7"),
