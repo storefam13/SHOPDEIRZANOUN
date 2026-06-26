@@ -453,6 +453,14 @@ input,select,textarea{font-family:inherit;font-size:16px}
 .scan-manual input{flex:1;padding:13px 14px;border-radius:12px;border:1.5px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);color:#fff;font-weight:700;font-size:16px;outline:none;direction:ltr;text-align:right}
 .scan-manual input::placeholder{color:rgba(255,255,255,.5);direction:rtl}
 .scan-manual input:focus{border-color:#27e08c;background:rgba(255,255,255,.12)}
+.scan-head-actions{display:flex;align-items:center;gap:8px}
+.scan-x.on{background:#27e08c;color:#08120e}
+.scan-zoom{display:flex;align-items:center;gap:10px;width:100%;max-width:400px;color:#fff;font-weight:800}
+.scan-zoom>span{font-size:18px;opacity:.85;flex-shrink:0}
+.scan-zoom b{font-size:13px;min-width:42px;text-align:center;color:#a8f0cf;flex-shrink:0;direction:ltr}
+.scan-zoom input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:6px;border-radius:6px;background:rgba(255,255,255,.22);outline:none;margin:0}
+.scan-zoom input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:24px;height:24px;border-radius:50%;background:#27e08c;border:2.5px solid #fff;box-shadow:0 2px 7px rgba(0,0,0,.45);cursor:pointer}
+.scan-zoom input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#27e08c;border:2.5px solid #fff;cursor:pointer}
 
 </style>
 </head>
@@ -1697,8 +1705,13 @@ function OMTAdj() {
 /* ============================ BARCODE CAMERA SCANNER ============================ */
 function BarcodeScanner({ onScan, onClose }) {
     const idRef = useRef('bcscan-' + Math.random().toString(36).slice(2));
+    const scRef = useRef(null);
     const [err, setErr] = useState('');
     const [manual, setManual] = useState('');
+    const [zoom, setZoom] = useState(1);
+    const [zoomCap, setZoomCap] = useState(null);
+    const [torch, setTorch] = useState(false);
+    const [torchCap, setTorchCap] = useState(false);
     useEffect(() => {
         let inst = null, done = false;
         if (!window.Html5Qrcode) {
@@ -1719,7 +1732,9 @@ function BarcodeScanner({ onScan, onClose }) {
             setErr('ما قدرت ابدأ الماسح.');
             return;
         }
-        const cfg = { fps: 12, aspectRatio: 1, experimentalFeatures: { useBarCodeDetectorIfSupported: true } };
+        scRef.current = inst;
+        const hi = { facingMode: 'environment', width: { ideal: 2560 }, height: { ideal: 1440 }, advanced: [{ focusMode: 'continuous' }] };
+        const cfg = { fps: 15, aspectRatio: 1, disableFlip: true, experimentalFeatures: { useBarCodeDetectorIfSupported: true } };
         const ok = (txt) => {
             if (done)
                 return;
@@ -1738,7 +1753,25 @@ function BarcodeScanner({ onScan, onClose }) {
             else
                 onScan(code);
         };
-        inst.start({ facingMode: 'environment' }, cfg, ok, () => { }).catch((e) => {
+        const discover = () => {
+            try {
+                const caps = inst.getRunningTrackCapabilities ? inst.getRunningTrackCapabilities() : {};
+                if (caps && caps.zoom && typeof caps.zoom.max === 'number' && caps.zoom.max > (caps.zoom.min || 1)) {
+                    const zc = { min: caps.zoom.min || 1, max: caps.zoom.max, step: caps.zoom.step || 0.1 };
+                    const z0 = Math.min(zc.max, Math.max(zc.min, 2));
+                    setZoomCap(zc);
+                    setZoom(z0);
+                    try {
+                        inst.applyVideoConstraints({ advanced: [{ zoom: z0 }] });
+                    }
+                    catch (e) { }
+                }
+                if (caps && caps.torch === true)
+                    setTorchCap(true);
+            }
+            catch (e) { }
+        };
+        const fail = (e) => {
             const m = ((e && (e.message || e.name)) || '') + '';
             if (/NotAllowed|Permission|denied/i.test(m))
                 setErr('لازم تسمح للتطبيق يستعمل الكاميرا. روح ع إعدادات المتصفح، اسمح بالكاميرا لهالموقع، بعدين جرّب كمان مرة.');
@@ -1748,6 +1781,13 @@ function BarcodeScanner({ onScan, onClose }) {
                 setErr('الكاميرا مشغولة بتطبيق تاني. سكّر باقي التطبيقات يلي عم تستعمل الكاميرا وجرّب.');
             else
                 setErr('ما قدرت افتح الكاميرا. تأكد إنك سامح بالكاميرا لهالموقع.');
+        };
+        inst.start(hi, cfg, ok, () => { }).then(discover).catch((e) => {
+            const m = ((e && (e.message || e.name)) || '') + '';
+            if (/Overconstrained/i.test(m))
+                inst.start({ facingMode: 'environment' }, { fps: 12, aspectRatio: 1, experimentalFeatures: { useBarCodeDetectorIfSupported: true } }, ok, () => { }).then(discover).catch(fail);
+            else
+                fail(e);
         });
         return () => {
             done = true;
@@ -1762,12 +1802,34 @@ function BarcodeScanner({ onScan, onClose }) {
             }
         };
     }, []);
+    const applyZoom = (z) => {
+        setZoom(z);
+        const inst = scRef.current;
+        if (inst) {
+            try {
+                inst.applyVideoConstraints({ advanced: [{ zoom: z }] }).catch(() => { });
+            }
+            catch (e) { }
+        }
+    };
+    const toggleTorch = () => {
+        const inst = scRef.current;
+        if (!inst)
+            return;
+        const nx = !torch;
+        try {
+            inst.applyVideoConstraints({ advanced: [{ torch: nx }] }).then(() => setTorch(nx)).catch(() => { });
+        }
+        catch (e) { }
+    };
     const submitManual = () => { const v = manual.trim(); if (v)
         onScan(v); };
     return ReactDOM.createPortal(React.createElement("div", { className: "scan-modal" },
         React.createElement("div", { className: "scan-head" },
             React.createElement("div", { className: "scan-title" }, "\uD83D\uDCF7 \u0627\u0645\u0633\u062D \u0627\u0644\u0628\u0627\u0631\u0643\u0648\u062F"),
-            React.createElement("button", { className: "scan-x", onClick: onClose }, "\u2715")),
+            React.createElement("div", { className: "scan-head-actions" },
+                torchCap && React.createElement("button", { className: 'scan-x' + (torch ? ' on' : ''), onClick: toggleTorch, title: "\u0641\u0644\u0627\u0634" }, "\uD83D\uDD26"),
+                React.createElement("button", { className: "scan-x", onClick: onClose }, "\u2715"))),
         React.createElement("div", { className: "scan-body" },
             err
                 ? React.createElement("div", { className: "scan-err" }, "\u26A0\uFE0F " + err)
@@ -1776,7 +1838,12 @@ function BarcodeScanner({ onScan, onClose }) {
                         React.createElement("div", { id: idRef.current, style: { width: '100%', height: '100%' } }),
                         React.createElement("div", { className: "scan-frame" }),
                         React.createElement("div", { className: "scan-laser" })),
-                    React.createElement("div", { className: "scan-hint" }, "\u0648\u062C\u0651\u0647 \u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627 \u0639\u0627\u0644\u0628\u0627\u0631\u0643\u0648\u062F \u0648\u062B\u0628\u0651\u062A \u0634\u0648\u064A")),
+                    zoomCap && React.createElement("div", { className: "scan-zoom" },
+                        React.createElement("span", null, "\u2796"),
+                        React.createElement("input", { type: "range", min: zoomCap.min, max: zoomCap.max, step: zoomCap.step, value: zoom, onChange: (e) => applyZoom(parseFloat(e.target.value)) }),
+                        React.createElement("span", null, "\u2795"),
+                        React.createElement("b", { className: "num" }, zoom.toFixed(1) + "\u00D7")),
+                    React.createElement("div", { className: "scan-hint" }, "\u0644\u0644\u0628\u0627\u0631\u0643\u0648\u062F \u0627\u0644\u0635\u063A\u064A\u0631: \u0642\u0631\u0651\u0628 \u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627 \u0648\u0643\u0628\u0651\u0631 \u0628\u0627\u0644\u0632\u0648\u0645")),
             React.createElement("div", { className: "scan-manual" },
                 React.createElement("input", { value: manual, onChange: (e) => setManual(e.target.value), placeholder: "\u0623\u0648 \u0627\u0643\u062A\u0628 \u0627\u0644\u0631\u0642\u0645 \u064A\u062F\u0648\u064A\u0627\u064B", inputMode: "numeric", autoCapitalize: "off", onKeyDown: (e) => { if (e.key === 'Enter')
                         submitManual(); } }),
