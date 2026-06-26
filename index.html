@@ -999,7 +999,7 @@ function revExp(db) {
 }
 function serviceBalance(db, svc) {
     const r = { sellL: 0, sellU: 0, buyL: 0, buyU: 0 };
-    db.other.filter((o) => o.svc === svc && !o.item).forEach((o) => {
+    db.other.filter((o) => o.svc === svc).forEach((o) => {
         const u = o.curr === 'USD';
         const t = N(o.amount);
         if (o.kind === 'sell') {
@@ -1015,7 +1015,7 @@ function serviceBalance(db, svc) {
                 r.buyL += t;
         }
     });
-    /* remaining credit = bought (loaded) − sold */
+    /* remaining credit = loaded (credit buys + item restocks) − sold (credit sells + item sales) */
     const _op = (db.opening && db.opening.services && db.opening.services[svc]) || {};
     return { ...r, balL: r.buyL - r.sellL + N(_op.l), balU: r.buyU - r.sellU + N(_op.u) };
 }
@@ -2245,7 +2245,7 @@ function ServicePage({ svc }) {
         if (!N(iqty))
             return ui.toast('حط الكمية');
         ui.confirm({ title: 'تأكيد حركة صنف — ' + svc, desc: (ikind === 'sell' ? 'بيع ' : 'شراء ') + sel.name + ':',
-            lines: [['الصنف', sel.name], ['النوع', ikind === 'sell' ? 'بيع' : 'شراء'], ['الكمية', String(N(iqty))], ['السعر', mc(icurr, iprice)], ['الإجمالي', mc(icurr, itotal)], ['تأثير الصندوق', (ikind === 'sell' ? '+ ' : '− ') + mc(icurr, itotal)]],
+            lines: [['الصنف', sel.name], ['النوع', ikind === 'sell' ? 'بيع' : 'شراء'], ['الكمية', String(N(iqty))], ['السعر', mc(icurr, iprice)], ['الإجمالي', mc(icurr, itotal)], ['تأثير الصندوق', (ikind === 'sell' ? '+ ' : '− ') + mc(icurr, itotal)], ['تأثير الرصيد المتبقّي', (ikind === 'sell' ? '− ' : '+ ') + mc(icurr, itotal)]],
             onOk: () => { db.other.unshift({ id: uid(), ts: now(), svc, kind: ikind, item: sel.name, qty: N(iqty), price: N(iprice), curr: icurr, total: N(itotal), amount: N(itotal), date: todayISO() }); logAudit('إضافة', 'خدمة ' + svc + ' · ' + sel.name + ' ×' + N(iqty)); saveDB(); setIqty('1'); ui.toast('انحفظ ✓'); } });
     };
     // ---- item management ----
