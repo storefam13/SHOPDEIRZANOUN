@@ -1733,8 +1733,8 @@ function BarcodeScanner({ onScan, onClose }) {
             return;
         }
         scRef.current = inst;
-        const hi = { facingMode: 'environment', width: { ideal: 2560 }, height: { ideal: 1440 }, advanced: [{ focusMode: 'continuous' }] };
-        const cfg = { fps: 15, aspectRatio: 1, disableFlip: true, experimentalFeatures: { useBarCodeDetectorIfSupported: true } };
+        const hiCfg = { fps: 15, aspectRatio: 1, disableFlip: true, videoConstraints: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }, experimentalFeatures: { useBarCodeDetectorIfSupported: true } };
+        const simpleCfg = { fps: 12, aspectRatio: 1, experimentalFeatures: { useBarCodeDetectorIfSupported: true } };
         const ok = (txt) => {
             if (done)
                 return;
@@ -1755,6 +1755,10 @@ function BarcodeScanner({ onScan, onClose }) {
         };
         const discover = () => {
             try {
+                try {
+                    inst.applyVideoConstraints({ advanced: [{ focusMode: 'continuous' }] });
+                }
+                catch (e) { }
                 const caps = inst.getRunningTrackCapabilities ? inst.getRunningTrackCapabilities() : {};
                 if (caps && caps.zoom && typeof caps.zoom.max === 'number' && caps.zoom.max > (caps.zoom.min || 1)) {
                     const zc = { min: caps.zoom.min || 1, max: caps.zoom.max, step: caps.zoom.step || 0.1 };
@@ -1772,23 +1776,18 @@ function BarcodeScanner({ onScan, onClose }) {
             catch (e) { }
         };
         const fail = (e) => {
-            const m = ((e && (e.message || e.name)) || '') + '';
+            const m = (typeof e === 'string' ? e : (e && (e.message || e.name)) || '') + '';
             if (/NotAllowed|Permission|denied/i.test(m))
-                setErr('لازم تسمح للتطبيق يستعمل الكاميرا. روح ع إعدادات المتصفح، اسمح بالكاميرا لهالموقع، بعدين جرّب كمان مرة.');
-            else if (/NotFound|not found|no camera/i.test(m))
+                setErr('الكاميرا مرفوضة من إعدادات المتصفح. افتح إعدادات الموقع (🔒 جنب الرابط) واسمح بالكاميرا، بعدين جرّب كمان مرة.');
+            else if (/NotFound|not found|no camera|Requested device/i.test(m))
                 setErr('ما في كاميرا متاحة على هالجهاز.');
-            else if (/NotReadable|in use|TrackStart/i.test(m))
-                setErr('الكاميرا مشغولة بتطبيق تاني. سكّر باقي التطبيقات يلي عم تستعمل الكاميرا وجرّب.');
+            else if (/NotReadable|in use|TrackStart|Could not start video|Starting video failed/i.test(m))
+                setErr('الكاميرا مشغولة بتطبيق تاني. سكّر باقي التطبيقات (متل الكاميرا أو واتساب) وجرّب كمان مرة.');
             else
-                setErr('ما قدرت افتح الكاميرا. تأكد إنك سامح بالكاميرا لهالموقع.');
+                setErr('ما قدرت افتح الكاميرا. جرّب: سكّر التطبيق وافتحو من جديد، أو استعمل متصفح Chrome (أندرويد) أو Safari (آيفون). وإلا استعمل الكتابة اليدوية تحت.');
         };
-        inst.start(hi, cfg, ok, () => { }).then(discover).catch((e) => {
-            const m = ((e && (e.message || e.name)) || '') + '';
-            if (/Overconstrained/i.test(m))
-                inst.start({ facingMode: 'environment' }, { fps: 12, aspectRatio: 1, experimentalFeatures: { useBarCodeDetectorIfSupported: true } }, ok, () => { }).then(discover).catch(fail);
-            else
-                fail(e);
-        });
+        const tryStart = (cfg2, next) => inst.start({ facingMode: 'environment' }, cfg2, ok, () => { }).then(discover).catch(next);
+        tryStart(hiCfg, () => tryStart(simpleCfg, () => tryStart(undefined, fail)));
         return () => {
             done = true;
             if (inst) {
