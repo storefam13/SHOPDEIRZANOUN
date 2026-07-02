@@ -462,12 +462,26 @@ input,select,textarea{font-family:inherit;font-size:16px}
 .scan-zoom input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:24px;height:24px;border-radius:50%;background:#27e08c;border:2.5px solid #fff;box-shadow:0 2px 7px rgba(0,0,0,.45);cursor:pointer}
 .scan-zoom input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#27e08c;border:2.5px solid #fff;cursor:pointer}
 
+.hero .num.pos{ color:#4ade80 !important; font-weight:800 }
+.hero .num.neg{ color:#ff8f80 !important; font-weight:800 }
+.welcome{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:11px 14px;margin-bottom:13px;box-shadow:0 4px 14px rgba(0,0,0,.04)}
+.welcome .w-av{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,#0e7a5f,#0b3d2e);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;flex-shrink:0}
+.welcome .w-txt{flex:1;min-width:0}
+.welcome .w-hi{font-size:12.5px;color:var(--muted);font-weight:600}
+.welcome .w-nm{font-size:16px;font-weight:800;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.welcome .w-role{font-size:12px;color:var(--brand-2);font-weight:700}
+.welcome .w-date{font-size:11.5px;color:var(--muted);text-align:left;font-weight:700;flex-shrink:0;max-width:96px;line-height:1.35}
+.toggle-btn{ border:1.5px solid var(--line); background:var(--surface-2); color:var(--muted); font-weight:800; font-size:13px; padding:7px 18px; border-radius:20px; cursor:pointer; white-space:nowrap }
+.toggle-btn.on{ background:rgba(22,163,74,.12); border-color:#16a34a; color:#16a34a }
+.size-bar{height:13px;background:var(--surface-2);border-radius:7px;overflow:hidden;margin:5px 0 7px;border:1px solid var(--line)}
+.size-fill{height:100%;border-radius:7px;transition:width .45s ease}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 /* Precompiled to plain JS (React.createElement) — no Babel; runs from file:// and GitHub Pages */
@@ -676,6 +690,7 @@ catch (e) {
 const firebaseConfig = { apiKey: "AIzaSyD6uP3sRD1hl_ngK01dES0qlNyrYsGqpvg", authDomain: "shopdeirzanoun.firebaseapp.com", projectId: "shopdeirzanoun", storageBucket: "shopdeirzanoun.firebasestorage.app", messagingSenderId: "10787717383", appId: "1:10787717383:web:8f3e794bb0585fb8c585a2" };
 let fbDoc = null;
 let fbImages = null;
+let fbTx = null;
 const _imgFetching = new Set();
 let syncState = 'off';
 const syncSubs = new Set();
@@ -684,9 +699,14 @@ let _pushT = null;
 function schedulePush() { if (!fbDoc)
     return; setSync('syncing'); if (_pushT)
     clearTimeout(_pushT); _pushT = setTimeout(pushFirebase, 800); }
+function deviceId() { try { let d = localStorage.getItem('fam_device'); if (!d) { d = 'dev_' + Math.random().toString(36).slice(2, 7); localStorage.setItem('fam_device', d); } return d; } catch (e) { return 'dev_?'; } }
+function cloudLogTx(kind, summary, rec) { try { if (!fbTx) return; fbTx.add({ kind, summary: summary || '', by: _user || '\u2014', device: deviceId(), ts: Date.now(), date: (rec && rec.date) || todayISO(), payload: rec || {} }).catch(() => { }); } catch (e) { } }
+function lzAvail() { return !!window.LZString; }
+function packCloud(obj) { const j = JSON.stringify(obj); try { if (lzAvail()) return { cz: window.LZString.compressToBase64(j), z: 1 }; } catch (e) { } return { json: j }; }
+function unpackCloud(d) { try { if (d && d.z && d.cz) { const x = window.LZString.decompressFromBase64(d.cz); return x ? JSON.parse(x) : null; } } catch (e) { } try { if (d && d.json) return JSON.parse(d.json); } catch (e) { } return null; }
 function pushFirebase() { if (!fbDoc)
     return; setSync('syncing'); try {
-    fbDoc.set({ json: JSON.stringify(_db), _rev: _db._rev || 0, ts: Date.now() }).then(() => setSync('synced')).catch(() => setSync('off'));
+    fbDoc.set({ ...packCloud(_db), _rev: _db._rev || 0, ts: Date.now() }).then(() => setSync('synced')).catch(() => setSync('off'));
 }
 catch (e) {
     setSync('off');
@@ -701,6 +721,7 @@ function initFirebase() {
         fbDoc = firebase.firestore().collection('famstore').doc('state');
         try {
             fbImages = firebase.firestore().collection('images');
+            try { fbTx = firebase.firestore().collection('txlog'); } catch (e2) { fbTx = null; }
         }
         catch (e) {
             fbImages = null;
@@ -713,9 +734,10 @@ function initFirebase() {
         fbDoc.onSnapshot((snap) => {
             const d = snap.data() || {};
             const rrev = d._rev || 0, lrev = _db._rev || 0;
-            if (d.json && rrev > lrev) {
+            if ((d.cz || d.json) && rrev > lrev) {
                 try {
-                    const remote = JSON.parse(d.json);
+                    const remote = unpackCloud(d);
+                    if (!remote) throw new Error('unpack');
                     _db = normalize(remote);
                     try {
                         localStorage.setItem(DB_KEY, JSON.stringify(_db));
@@ -1024,6 +1046,7 @@ function serviceCash(db) { let l = 0, u = 0; db.other.forEach((o) => { const s =
     u += s * N(o.amount);
 else
     l += s * N(o.amount); }); return { l, u }; }
+function exchCash(db) { let l = 0, u = 0; (db.omtExch || []).forEach((x) => { if (x.type === 'USD') { u += N(x.amount); l -= N(x.total); } else { l += N(x.amount); u -= N(x.total); } }); return { l, u }; }
 function svcItemStats(db, svc) {
     const so = (db.services || []).find((x) => x.name === svc) || {};
     const items = so.items || [];
@@ -1403,6 +1426,7 @@ function Clock() {
 function Dashboard({ go }) {
     const db = useDB();
     const ui = useUI();
+    const rc = useRole();
     const rate = db.settings.rate;
     const [fq, setFq] = useState('');
     const omt = omtBalance(db), oT = omtToday(db);
@@ -1410,10 +1434,10 @@ function Dashboard({ go }) {
     const cust = custBalances(db), re = revExp(db);
     const tProfit = acc.T.profit + mob.T.profit + rec.T.profit;
     const stockVal = acc.T.stockVal + mob.T.stockVal + rec.T.stockVal;
-    const sc = serviceCash(db);
+    const sc = serviceCash(db); const ex = exchCash(db);
     const supPayL = (db.supPayments || []).reduce((s, x) => s + N(x.lbp), 0), supPayU = (db.supPayments || []).reduce((s, x) => s + N(x.usd), 0);
-    const cashL = N(db.opening.cashL) + (acc.T.saleL + mob.T.saleL + rec.T.saleL) - (acc.T.costL + mob.T.costL + rec.T.costL) + cust.rows.reduce((s, c) => s + (c.payL - c.debtL), 0) + re.netL + omt.lbp + sc.l - supPayL;
-    const cashU = N(db.opening.cashU) + cust.rows.reduce((s, c) => s + (c.payU - c.debtU), 0) + re.netU + omt.usd + sc.u - supPayU;
+    const cashL = N(db.opening.cashL) + (acc.T.saleL + mob.T.saleL + rec.T.saleL) - (acc.T.costL + mob.T.costL + rec.T.costL) + cust.rows.reduce((s, c) => s + (c.payL - c.debtL), 0) + re.netL + omt.lbp + sc.l + ex.l - supPayL;
+    const cashU = N(db.opening.cashU) + cust.rows.reduce((s, c) => s + (c.payU - c.debtU), 0) + re.netU + omt.usd + sc.u + ex.u - supPayU;
     const feed = buildFeed(db), bars = last7sales(db, rate), low = lowStockAll(db);
     const shown = fq.trim() ? feed.filter((it) => ((it.t || '') + ' ' + (it.s || '')).toLowerCase().includes(fq.trim().toLowerCase())) : feed;
     useEffect(() => { try {
@@ -1433,7 +1457,9 @@ function Dashboard({ go }) {
     const maxBar = Math.max(1, ...bars.map((b) => b.total));
     const openItem = (it) => { const sp = it.etype ? mkEdit(db, it.etype, it.erec) : null; ui.detail({ title: it.t, rows: it.rows, onDelete: it.del, receipt: it.receipt, edit: sp ? { spec: sp, rec: it.erec } : null }); };
     const shortcuts = [['omt', '💱', 'OMT'], ['acc', '🎧', 'إكسسوار'], ['mob', '📱', 'موبايل'], ['rec', '🔋', 'تعبئة'], ['services', '🧾', 'خدمات'], ['cust', '👥', 'زبائن'], ['suppliers', '🏭', 'موردين'], ['rev', '📊', 'مداخيل'], ['invoice', '🧮', 'فاتورة'], ['omtcus', '🪪', 'هويات'], ['contacts', '📒', 'عناوين'], ['reports', '📊', 'تقارير'], ['calc', '➗', 'حاسبة']];
+    const _h = new Date().getHours(); const _greet = _h < 12 ? 'صباح الخير' : _h < 17 ? 'نهارك سعيد' : 'مساء الخير'; const _u = (rc && rc.user && rc.user.username) || ''; let _dstr = ''; try { _dstr = new Date().toLocaleDateString('ar', { weekday: 'long', day: 'numeric', month: 'long' }); } catch (e) { _dstr = todayISO(); }
     return React.createElement("div", { className: "page page-dash" },
+        React.createElement("div", { className: "welcome" }, React.createElement("div", { className: "w-av" }, (_u || '?').charAt(0).toUpperCase()), React.createElement("div", { className: "w-txt" }, React.createElement("div", { className: "w-hi" }, _greet + " \ud83d\udc4b"), React.createElement("div", { className: "w-nm" }, _u, React.createElement("span", { className: "w-role" }, " \u00b7 " + (rc && rc.role === 'admin' ? 'مدير' : 'كاشير')))), React.createElement("div", { className: "w-date" }, _dstr)),
         React.createElement("div", { className: "dash" },
             React.createElement("div", { className: "d-hero" },
                 React.createElement("div", { className: "hero" },
@@ -1623,7 +1649,7 @@ function OMTTransfer() {
             return ui.toast('حط مبلغ أوّلاً');
         ui.confirm({ title: 'تأكيد حوالة OMT', desc: dir === 'IN' ? 'تسجيل حوالة دخول (IN):' : 'تسجيل حوالة خروج (OUT):',
             lines: [['النوع', dir === 'IN' ? 'دخول (IN)' : 'خروج (OUT)'], ['ليرة', N(lbp) ? fLBP(lbp) + ' ل.ل' : ''], ['دولار', N(usd) ? fUSD(usd) + ' $' : '']],
-            onOk: () => { const ref = fmtRef('OMT', nextSeq(db, 'omt')); db.omt.unshift({ id: uid(), ts: now(), dir, lbp: N(lbp), usd: N(usd), date: todayISO(), ref }); logAudit('إضافة', 'OMT ' + (dir === 'IN' ? 'دخول' : 'خروج') + ' ' + money2(N(lbp), N(usd))); saveDB(); setLbp(''); setUsd(''); ui.toast('انحفظت الحوالة ✓'); } });
+            onOk: () => { const ref = fmtRef('OMT', nextSeq(db, 'omt')); const _omtRec = { id: uid(), ts: now(), dir, lbp: N(lbp), usd: N(usd), date: todayISO(), ref }; db.omt.unshift(_omtRec); cloudLogTx('omt', (dir === 'IN' ? 'دخول' : 'خروج') + ' ' + money2(N(lbp), N(usd)), _omtRec); logAudit('إضافة', 'OMT ' + (dir === 'IN' ? 'دخول' : 'خروج') + ' ' + money2(N(lbp), N(usd))); saveDB(); setLbp(''); setUsd(''); ui.toast('انحفظت الحوالة ✓'); } });
     };
     return React.createElement(React.Fragment, null,
         React.createElement("div", { className: "card" },
@@ -1651,7 +1677,7 @@ function OMTExch() {
             return ui.toast('حط المبلغ');
         ui.confirm({ title: 'تأكيد صرافة', desc: type === 'USD' ? 'تحويل دولار إلى ليرة:' : 'تحويل ليرة إلى دولار:',
             lines: [['المبلغ', type === 'USD' ? fUSD(amt) + ' $' : fLBP(amt) + ' ل.ل'], ['سعر الصرف', fLBP(rate)], ['الناتج', type === 'USD' ? fLBP(total) + ' ل.ل' : fUSD(total) + ' $']],
-            onOk: () => { const ref = fmtRef('SRF', nextSeq(db, 'exch')); db.omtExch.unshift({ id: uid(), ts: now(), type, amount: N(amt), rate: N(rate), total, date: todayISO(), ref }); logAudit('إضافة', 'صرافة عملة ' + ref); saveDB(); setAmt(''); ui.toast('انحفظت الصرافة ✓'); } });
+            onOk: () => { const ref = fmtRef('SRF', nextSeq(db, 'exch')); const _exRec = { id: uid(), ts: now(), type, amount: N(amt), rate: N(rate), total, date: todayISO(), ref }; db.omtExch.unshift(_exRec); cloudLogTx('exch', (type === 'USD' ? 'دولار→ليرة' : 'ليرة→دولار') + ' ' + (type === 'USD' ? fUSD(amt) + '$' : fLBP(amt)), _exRec); logAudit('إضافة', 'صرافة عملة ' + ref); saveDB(); setAmt(''); ui.toast('انحفظت الصرافة ✓'); } });
     };
     return React.createElement(React.Fragment, null,
         React.createElement("div", { className: "card" },
@@ -1902,7 +1928,7 @@ function InvEntry({ storeKey, kind }) {
             lines: [['الصنف', item], ['الكمية', String(q) + ' قطعة'], ['سعر القطعة', mc(curr, N(price))], ['الإجمالي', mc(curr, total)], ['المخزون بعد العملية', String(stockAfter) + ' قطعة']],
             onOk: () => {
                 const rec = { id: uid(), ts: now(), item, qty: q, price: N(price), total, curr, date: todayISO() };
-                (kind === 'sell' ? store.sales : store.purchases).unshift(rec);
+                (kind === 'sell' ? store.sales : store.purchases).unshift(rec); cloudLogTx(storeKey, (kind === 'sell' ? 'بيع' : 'شراء') + ' ' + item + ' ×' + q, rec);
                 logAudit('إضافة', (kind === 'sell' ? 'بيع' : 'شراء') + ' — ' + item);
                 saveDB();
                 setQty('1');
@@ -2229,7 +2255,7 @@ function ServicePage({ svc }) {
             return ui.toast('حط المبلغ');
         ui.confirm({ title: 'تأكيد حركة رصيد — ' + svc, desc: svc + ' — ' + (kind === 'sell' ? 'بيع رصيد (بيزيد الصندوق)' : 'شراء/تعبئة رصيد (بينقص الصندوق)') + ':',
             lines: [['الخدمة', svc], ['النوع', kind === 'sell' ? 'بيع رصيد' : 'شراء رصيد'], ['المبلغ', mc(curr, amt)], ['تأثير الصندوق', (kind === 'sell' ? '+ ' : '− ') + mc(curr, amt)]],
-            onOk: () => { db.other.unshift({ id: uid(), ts: now(), svc, kind, curr, amount: N(amt), date: todayISO() }); logAudit('إضافة', 'خدمة ' + svc + ' ' + (kind === 'sell' ? 'بيع' : 'شراء') + ' ' + mc(curr, N(amt))); saveDB(); setAmt(''); ui.toast('انحفظ ✓'); } });
+            onOk: () => { const _svRec = { id: uid(), ts: now(), svc, kind, curr, amount: N(amt), date: todayISO() }; db.other.unshift(_svRec); cloudLogTx('svc', svc + ' ' + (kind === 'sell' ? 'بيع رصيد' : 'شراء رصيد') + ' ' + mc(curr, N(amt)), _svRec); logAudit('إضافة', 'خدمة ' + svc + ' ' + (kind === 'sell' ? 'بيع' : 'شراء') + ' ' + mc(curr, N(amt))); saveDB(); setAmt(''); ui.toast('انحفظ ✓'); } });
     };
     // ---- items ----
     const [pick, setPick] = useState(''), [ikind, setIkind] = useState('sell'), [iqty, setIqty] = useState('1'), [icurr, setIcurr] = useState('LBP'), [iprice, setIprice] = useState(''), [itotal, setItotal] = useState('');
@@ -2246,7 +2272,7 @@ function ServicePage({ svc }) {
             return ui.toast('حط الكمية');
         ui.confirm({ title: 'تأكيد حركة صنف — ' + svc, desc: (ikind === 'sell' ? 'بيع ' : 'شراء ') + sel.name + ':',
             lines: [['الصنف', sel.name], ['النوع', ikind === 'sell' ? 'بيع' : 'شراء'], ['الكمية', String(N(iqty))], ['السعر', mc(icurr, iprice)], ['الإجمالي', mc(icurr, itotal)], ['تأثير الصندوق', (ikind === 'sell' ? '+ ' : '− ') + mc(icurr, itotal)], ['تأثير الرصيد المتبقّي', (ikind === 'sell' ? '− ' : '+ ') + mc(icurr, itotal)]],
-            onOk: () => { db.other.unshift({ id: uid(), ts: now(), svc, kind: ikind, item: sel.name, qty: N(iqty), price: N(iprice), curr: icurr, total: N(itotal), amount: N(itotal), date: todayISO() }); logAudit('إضافة', 'خدمة ' + svc + ' · ' + sel.name + ' ×' + N(iqty)); saveDB(); setIqty('1'); ui.toast('انحفظ ✓'); } });
+            onOk: () => { const _siRec = { id: uid(), ts: now(), svc, kind: ikind, item: sel.name, qty: N(iqty), price: N(iprice), curr: icurr, total: N(itotal), amount: N(itotal), date: todayISO() }; db.other.unshift(_siRec); cloudLogTx('svcitem', svc + ' · ' + sel.name + ' ×' + N(iqty), _siRec); logAudit('إضافة', 'خدمة ' + svc + ' · ' + sel.name + ' ×' + N(iqty)); saveDB(); setIqty('1'); ui.toast('انحفظ ✓'); } });
     };
     // ---- item management ----
     const [nm, setNm] = useState(''), [buy, setBuy] = useState(''), [sell, setSell] = useState(''), [img, setImg] = useState(''), [mcur, setMcur] = useState('LBP');
@@ -3003,6 +3029,7 @@ function CustEntry({ kind }) {
                 }
                 else
                     db.payments.unshift(rec);
+                cloudLogTx(kind === 'debt' ? 'debt' : 'pay', name + ' ' + money2(N(lbp), N(usd)), rec);
                 logAudit('إضافة', (kind === 'debt' ? 'دين' : 'تسديد') + ' — ' + name + ' ' + money2(N(lbp), N(usd)));
                 saveDB();
                 setLbp('');
@@ -3275,7 +3302,7 @@ function Invoice() {
             React.createElement(Field, { label: "\u0627\u0644\u0645\u0646\u062A\u062C" },
                 React.createElement("select", { value: prod, onChange: (e) => setProd(e.target.value) },
                     React.createElement("option", { value: "" }, "\u2014 \u0627\u062E\u062A\u0631 \u2014"),
-                    items.map((it) => React.createElement("option", { key: it.id, value: it.name }, it.name)))),
+                    items.map((n) => React.createElement("option", { key: n, value: n }, n)))),
             React.createElement(Field, { label: "\u0627\u0644\u0639\u0645\u0644\u0629" },
                 React.createElement(CurrPills, { curr: curr, setCurr: setCurr })),
             React.createElement(Field, { label: "\u0643\u0645\u064A\u0629" },
@@ -3689,15 +3716,15 @@ function BoxReport() {
     const omt = omtBalance(db), oT = omtToday(db);
     const acc = invStats(db.acc, rate), mob = invStats(db.mob, rate), rec = invStats(db.rec, rate);
     const cust = custBalances(db), re = revExp(db);
-    const sc = serviceCash(db);
+    const sc = serviceCash(db); const ex = exchCash(db);
     const supB = supBalances(db);
     const supPayL = (db.supPayments || []).reduce((s, x) => s + N(x.lbp), 0), supPayU = (db.supPayments || []).reduce((s, x) => s + N(x.usd), 0);
     const payblL = supB.rows.reduce((s, r) => s + Math.max(0, r.balL), 0), payblU = supB.rows.reduce((s, r) => s + Math.max(0, r.balU), 0);
     const svcProfit = totalServiceProfit(db), svcStock = totalServiceStockVal(db), svcCred = totalServiceCredit(db);
     const tProfit = acc.T.profit + mob.T.profit + rec.T.profit + svcProfit + re.netL;
     const stockVal = acc.T.stockVal + mob.T.stockVal + rec.T.stockVal + svcStock + N(db.opening.stockL);
-    const cashL = N(db.opening.cashL) + (acc.T.saleL + mob.T.saleL + rec.T.saleL) - (acc.T.costL + mob.T.costL + rec.T.costL) + cust.rows.reduce((s, c) => s + (c.payL - c.debtL), 0) + re.netL + omt.lbp + sc.l - supPayL;
-    const cashU = N(db.opening.cashU) + cust.rows.reduce((s, c) => s + (c.payU - c.debtU), 0) + re.netU + omt.usd + sc.u - supPayU;
+    const cashL = N(db.opening.cashL) + (acc.T.saleL + mob.T.saleL + rec.T.saleL) - (acc.T.costL + mob.T.costL + rec.T.costL) + cust.rows.reduce((s, c) => s + (c.payL - c.debtL), 0) + re.netL + omt.lbp + sc.l + ex.l - supPayL;
+    const cashU = N(db.opening.cashU) + cust.rows.reduce((s, c) => s + (c.payU - c.debtU), 0) + re.netU + omt.usd + sc.u + ex.u - supPayU;
     const recvL = cust.rows.reduce((s, c) => s + Math.max(0, c.balL), 0), recvU = cust.rows.reduce((s, c) => s + Math.max(0, c.balU), 0);
     const owedL = cust.rows.reduce((s, c) => s + Math.max(0, -c.balL), 0);
     const capL = cashL + stockVal + svcCred.l + omt.lbp + recvL + (cashU + svcCred.u + omt.usd + recvU) * rate - payblL - payblU * rate;
@@ -3812,6 +3839,84 @@ function BoxReport() {
             React.createElement("div", { className: "hint", style: { textAlign: 'right' } }, "\u0648\u0636\u0639 \u0627\u0644\u0643\u0627\u0634\u064A\u0631 \u2014 \u0631\u0623\u0633 \u0627\u0644\u0645\u0627\u0644 \u0648\u0627\u0644\u0623\u0631\u0628\u0627\u062D \u0645\u062A\u0627\u062D\u0629 \u0644\u0644\u0623\u062F\u0645\u0646 \u0641\u0642\u0637.")));
 }
 /* ============================ SETTINGS ============================ */
+function CloudLog() {
+    const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [more, setMore] = useState(false); const [err, setErr] = useState(''); const [done, setDone] = useState(false); const cursor = useRef(null);
+    const [qText, setQText] = useState(''), [kindF, setKindF] = useState('all'), [from, setFrom] = useState(''), [to, setTo] = useState('');
+    const tm = (ts) => { const d = new Date(N(ts)); const p2 = (n) => String(n).padStart(2, '0'); return p2(d.getHours()) + ':' + p2(d.getMinutes()); };
+    const kindLbl = { omt: 'حوالة OMT', exch: 'صرافة', acc: 'إكسسوارات', mob: 'موبايل', rec: 'تعبئة', debt: 'دين زبون', pay: 'تسديد زبون', svc: 'رصيد خدمة', svcitem: 'صنف خدمة' };
+    const kindIc = { omt: '↗', exch: '🔁', acc: '🎧', mob: '📱', rec: '⚡', debt: '📕', pay: '📗', svc: '💳', svcitem: '🎫' };
+    const load = (first) => {
+        if (!fbTx) { setErr('المزامنة السحابية مش فعّالة — تأكد من النت وإنك فاتح من رابط https.'); setLoading(false); return; }
+        setErr(''); if (first) setLoading(true); else setMore(true);
+        const fa = from ? Date.parse(from + 'T00:00:00') : null, tb = to ? Date.parse(to + 'T23:59:59') : null;
+        let q = fbTx; if (fa) q = q.where('ts', '>=', fa); if (tb) q = q.where('ts', '<=', tb); q = q.orderBy('ts', 'desc');
+        if (!first && cursor.current) q = q.startAfter(cursor.current); q = q.limit(40);
+        q.get().then((snap) => { const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() })); if (snap.docs.length) cursor.current = snap.docs[snap.docs.length - 1]; if (snap.docs.length < 40) setDone(true); setRows((prev) => first ? docs : [...prev, ...docs]); setLoading(false); setMore(false); }).catch((e) => { setErr('تعذّر جلب السجل: ' + ((e && e.message) || e)); setLoading(false); setMore(false); });
+    };
+    useEffect(() => { load(true); }, []);
+    const applyRange = () => { cursor.current = null; setDone(false); setRows([]); load(true); };
+    const me = deviceId(); const ql = qText.trim().toLowerCase();
+    const shown = rows.filter((x) => (kindF === 'all' || x.kind === kindF) && (!ql || (((x.summary || '') + ' ' + (x.by || '') + ' ' + (x.device || '') + ' ' + (kindLbl[x.kind] || '')).toLowerCase().indexOf(ql) >= 0)));
+    const CHIPS = [['all', 'الكل'], ['omt', 'OMT'], ['exch', 'صرافة'], ['acc', 'إكسسوارات'], ['mob', 'موبايل'], ['rec', 'تعبئة'], ['debt', 'ديون'], ['pay', 'تسديدات'], ['svc', 'رصيد خدمة'], ['svcitem', 'صنف خدمة']];
+    return React.createElement("div", { className: "page" },
+        React.createElement("div", { className: "hero compact" },
+            React.createElement("div", { className: "label" }, "📡 السجل السحابي — بحث"),
+            React.createElement("div", { className: "row" },
+                React.createElement("div", { className: "cell" }, React.createElement("div", { className: "cap" }, "ظاهر"), React.createElement("div", { className: "val num" }, shown.length)),
+                React.createElement("div", { className: "cell" }, React.createElement("div", { className: "cap" }, "محمّل"), React.createElement("div", { className: "val num" }, rows.length)))),
+        React.createElement("div", { className: "card" },
+            React.createElement("div", { className: "search-box" }, React.createElement("input", { placeholder: "🔎 دوّر باسم/مبلغ/كاشير…", value: qText, onChange: (e) => setQText(e.target.value) })),
+            React.createElement("div", { className: "pills", style: { flexWrap: 'wrap', marginTop: 6 } }, CHIPS.map((c) => React.createElement("button", { key: c[0], className: 'pill ' + (kindF === c[0] ? 'on-in' : ''), onClick: () => setKindF(c[0]) }, c[1]))),
+            React.createElement("div", { className: "two", style: { marginTop: 8 } },
+                React.createElement(Field, { label: "من تاريخ" }, React.createElement("input", { type: "date", value: from, onChange: (e) => setFrom(e.target.value) })),
+                React.createElement(Field, { label: "لتاريخ" }, React.createElement("input", { type: "date", value: to, onChange: (e) => setTo(e.target.value) }))),
+            React.createElement("div", { className: "btn-row" },
+                React.createElement("button", { className: "btn btn-ghost", onClick: applyRange }, "🔍 بحث بالفترة"),
+                (from || to) && React.createElement("button", { className: "btn btn-ghost", onClick: () => { setFrom(''); setTo(''); cursor.current = null; setDone(false); setRows([]); setTimeout(() => load(true), 0); } }, "↩︎ كل التواريخ"))),
+        loading ? React.createElement("div", { className: "card" }, React.createElement("div", { className: "hint", style: { textAlign: 'center' } }, "عم يحمّل…")) :
+            err ? React.createElement("div", { className: "card" }, React.createElement("div", { className: "hint", style: { textAlign: 'right', color: 'var(--neg)' } }, err)) :
+                rows.length === 0 ? React.createElement("div", { className: "card" }, React.createElement("div", { className: "hint", style: { textAlign: 'center' } }, "📡 ما في سجلات بعد — سجّل حركة وبتظهر هون")) :
+                    React.createElement(React.Fragment, null,
+                        React.createElement("div", { className: "list" }, shown.length === 0 ? React.createElement("div", { className: "card" }, React.createElement("div", { className: "hint", style: { textAlign: 'center' } }, "ما في نتيجة بهالفلتر — وسّع الفترة أو حمّل المزيد")) : shown.map((x) =>
+                            React.createElement("div", { key: x.id, className: "row-item" },
+                                React.createElement("div", { className: "av", style: { background: x.kind === 'exch' ? 'var(--gold-soft)' : 'var(--brand-soft)', color: x.kind === 'exch' ? 'var(--gold)' : 'var(--brand-2)' } }, kindIc[x.kind] || '•'),
+                                React.createElement("div", { className: "main" },
+                                    React.createElement("div", { className: "nm" }, (kindLbl[x.kind] || x.kind) + (x.summary ? ' · ' + x.summary : '')),
+                                    React.createElement("div", { className: "sb" }, "👤 " + (x.by || '—') + " · 📱 " + (x.device || '—') + (x.device === me ? ' (هذا الجهاز)' : '') + " · " + fDate(x.date) + " " + tm(x.ts)))))),
+                        !done && React.createElement("button", { className: "btn btn-ghost", style: { marginTop: 11 }, disabled: more, onClick: () => load(false) }, more ? '…' : '⬇ تحميل المزيد (صفحة)'),
+                        done && React.createElement("div", { className: "hint", style: { textAlign: 'center', marginTop: 9 } }, "— نهاية السجل —")));
+}
+function dbStats(db) {
+    const json = JSON.stringify(db); let raw; try { raw = new Blob([json]).size; } catch (e) { raw = json.length * 2; }
+    let bytes = raw, comp = false; try { if (window.LZString) { const cz = window.LZString.compressToBase64(json); bytes = new Blob([cz]).size; comp = true; } } catch (e) { }
+    const arrays = ['omt', 'omtAdj', 'omtExch', 'other', 'debts', 'payments', 'supDebts', 'supPayments', 'revenue', 'expenses', 'invoices', 'closings', 'audit', 'omtcus', 'rates', 'contacts'];
+    let tx = 0; arrays.forEach((k) => { if (Array.isArray(db[k])) tx += db[k].length; });
+    ['acc', 'mob', 'rec'].forEach((k) => { if (db[k]) tx += ((db[k].sales || []).length + (db[k].purchases || []).length); });
+    const wk = Date.now() - 7 * 86400000; let recent = 0;
+    const scan = (arr) => { (arr || []).forEach((x) => { const t = N(x.ts) || (x.date ? Date.parse(x.date) : 0); if (t >= wk) recent++; }); };
+    arrays.forEach((k) => scan(db[k])); ['acc', 'mob', 'rec'].forEach((k) => { if (db[k]) { scan(db[k].sales); scan(db[k].purchases); } });
+    const perDay = recent / 7; const LIMIT = 1048576;
+    const pct = Math.min(100, Math.round(bytes / LIMIT * 1000) / 10);
+    const bpt = tx > 0 ? bytes / tx : 220;
+    const daysLeft = perDay > 0 ? Math.floor(Math.max(0, LIMIT - bytes) / (bpt * perDay)) : null;
+    return { bytes, raw, comp, tx, pct, perDay: Math.round(perDay), daysLeft };
+}
+function SizeMonitor() {
+    const db = useDB(); const st = dbStats(db);
+    const fmtB = (b) => b < 1024 ? b + ' B' : (b / 1024).toFixed(1) + ' KB';
+    const col = st.pct >= 85 ? 'neg' : st.pct >= 60 ? 'amber-t' : 'pos';
+    const barC = st.pct >= 85 ? 'var(--neg)' : st.pct >= 60 ? '#f59e0b' : 'var(--brand-2)';
+    return React.createElement("div", { className: "card" },
+        React.createElement("div", { className: "sec-h tight" }, React.createElement("div", { className: "bar" }), React.createElement("h2", null, "\ud83d\udcca \u062d\u062c\u0645 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a \u0648\u0627\u0644\u0633\u0639\u0629")),
+        React.createElement("div", { className: "kv" }, React.createElement("div", { className: "k" }, "\u0627\u0644\u0645\u0633\u062a\u0639\u0645\u0644 (\u0645\u0632\u0627\u0645\u0646\u0629 \u0633\u062d\u0627\u0628\u064a\u0629)"), React.createElement("div", { className: 'v num ' + col }, fmtB(st.bytes) + " / 1 MB")),
+        React.createElement("div", { className: "size-bar" }, React.createElement("div", { className: "size-fill", style: { width: st.pct + '%', background: barC } })),
+        React.createElement("div", { className: "kv" }, React.createElement("div", { className: "k" }, "\u0627\u0644\u0646\u0633\u0628\u0629 \u0645\u0646 \u0627\u0644\u062d\u062f"), React.createElement("div", { className: 'v num ' + col }, st.pct + "%")),
+        st.comp && React.createElement("div", { className: "kv" }, React.createElement("div", { className: "k" }, "\ud83d\udDDC\ufe0f \u0645\u0648\u0641\u0651\u0631 \u0628\u0627\u0644\u0636\u063a\u0637"), React.createElement("div", { className: "v num pos" }, Math.round((1 - st.bytes / Math.max(1, st.raw)) * 100) + "% \u00b7 \u0627\u0644\u0623\u0635\u0644\u064a " + (st.raw / 1024).toFixed(1) + " KB")),
+        React.createElement("div", { className: "kv" }, React.createElement("div", { className: "k" }, "\u0639\u062f\u062f \u0627\u0644\u062d\u0631\u0643\u0627\u062a \u0627\u0644\u0645\u062e\u0632\u0651\u0646\u0629"), React.createElement("div", { className: "v num" }, st.tx.toLocaleString('en-US'))),
+        React.createElement("div", { className: "kv" }, React.createElement("div", { className: "k" }, "\u0645\u0639\u062f\u0651\u0644 \u0622\u062e\u0631 \u0623\u0633\u0628\u0648\u0639"), React.createElement("div", { className: "v num" }, "~" + st.perDay + "/\u064a\u0648\u0645")),
+        st.daysLeft != null && React.createElement("div", { className: "kv" }, React.createElement("div", { className: "k" }, "\u062a\u0642\u062f\u064a\u0631 \u0627\u0644\u0627\u0645\u062a\u0644\u0627\u0621 (\u0628\u0647\u0627\u0644\u0645\u0639\u062f\u0651\u0644)"), React.createElement("div", { className: 'v num ' + (st.daysLeft < 30 ? 'neg' : st.daysLeft < 90 ? 'amber-t' : 'pos') }, st.daysLeft > 3650 ? '\u0633\u0646\u064a\u0646' : '~' + st.daysLeft + ' \u064a\u0648\u0645')),
+        React.createElement("div", { className: "hint", style: { textAlign: 'right', marginTop: 8 } }, "\u0639\u0646\u062f 100% \u062a\u062a\u0648\u0642\u0651\u0641 \u0627\u0644\u0645\u0632\u0627\u0645\u0646\u0629 \u0639\u0646 \u0627\u0644\u0639\u0645\u0644. \u0635\u062f\u0651\u0631 Backup \u0628\u0627\u0646\u062a\u0638\u0627\u0645."));
+}
 function Settings({ onLogout, go }) {
     const db = useDB();
     const ui = useUI();
@@ -3882,18 +3987,27 @@ function Settings({ onLogout, go }) {
                         "\u2B06 \u0627\u0633\u062A\u064A\u0631\u0627\u062F",
                         React.createElement("input", { type: "file", accept: "application/json", onChange: importJSON, style: { display: 'none' } }))),
                 React.createElement("div", { className: "hint", style: { textAlign: 'right', marginTop: 10 } }, "\u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A \u0645\u062D\u0641\u0648\u0638\u0629 \u0645\u062D\u0644\u064A\u0627\u064B \u0639\u0644\u0649 \u0627\u0644\u062C\u0647\u0627\u0632. \u0644\u0645\u0632\u0627\u0645\u0646\u0629 \u0628\u064A\u0646 \u0627\u0644\u0623\u062C\u0647\u0632\u0629 \u0645\u0646\u0648\u0635\u0644 Firestore \u0644\u0627\u062D\u0642\u0627\u064B."))),
+        can('settings') && React.createElement(SizeMonitor, null),
+        can('settings') && React.createElement("div", { className: "card" },
+            React.createElement("div", { className: "sec-h tight" }, React.createElement("div", { className: "bar" }), React.createElement("h2", null, "\ud83d\udd12 \u0627\u0644\u0623\u0645\u0627\u0646 \u0648\u0627\u0644\u0642\u0641\u0644")),
+            React.createElement("div", { className: "kv" },
+                React.createElement("div", { className: "k" }, "\u0627\u0644\u0642\u0641\u0644 \u0627\u0644\u062a\u0644\u0642\u0627\u0626\u064a \u0639\u0646\u062f \u0627\u0644\u062e\u0645\u0648\u0644 (\u0663 \u062f\u0642\u0627\u0626\u0642)"),
+                React.createElement("button", { className: 'toggle-btn ' + ((s.autoLock !== false) ? 'on' : ''), onClick: () => setS({ ...s, autoLock: !(s.autoLock !== false) }) }, (s.autoLock !== false) ? '\u0645\u0641\u0639\u0651\u0644' : '\u0645\u062a\u0648\u0642\u0651\u0641')),
+            React.createElement("div", { className: "hint", style: { textAlign: 'right', marginTop: 6 } }, "\u0632\u0631 \u0627\u0644\u0642\u0641\u0644 \u0627\u0644\u064a\u062f\u0648\u064a \ud83d\udd12 \u0641\u0648\u0642 \u0628\u064a\u0636\u0644 \u0634\u063a\u0651\u0627\u0644 \u062f\u0627\u064a\u0645\u064b\u0627."),
+            React.createElement("button", { className: "btn btn-primary", style: { marginTop: 8 }, onClick: save }, "\u062d\u0641\u0638 \u0625\u0639\u062f\u0627\u062f\u0627\u062a \u0627\u0644\u0642\u0641\u0644")),
         !can('settings') && React.createElement("div", { className: "card" },
             React.createElement("div", { className: "hint", style: { textAlign: 'right' } }, "\u0648\u0636\u0639 \u0645\u062D\u062F\u0648\u062F \u2014 \u0628\u0639\u0636 \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A \u0645\u062A\u0627\u062D\u0629 \u0644\u0644\u0645\u0633\u0624\u0648\u0644 \u0641\u0642\u0637.")),
         admin && React.createElement("button", { className: "btn btn-ghost", style: { marginTop: 11 }, onClick: () => go('users') }, "\uD83D\uDC64 \u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645\u064A\u0646 \u0648\u0627\u0644\u0635\u0644\u0627\u062D\u064A\u0627\u062A"),
+        admin && React.createElement("button", { className: "btn btn-ghost", style: { marginTop: 11 }, onClick: () => go('cloudlog') }, "\ud83d\udce1 \u0627\u0644\u0633\u062c\u0644 \u0627\u0644\u0633\u062d\u0627\u0628\u064a"),
         admin && React.createElement("button", { className: "btn btn-ghost", style: { marginTop: 9 }, onClick: () => go('audit') }, "\uD83D\uDCCB \u0633\u062C\u0644 \u0627\u0644\u0639\u0645\u0644\u064A\u0627\u062A (\u0645\u064A\u0646 \u0639\u0645\u0644 \u0634\u0648)"),
         admin && React.createElement("button", { className: "btn btn-ghost", style: { marginTop: 9 }, onClick: () => go('reports') }, "\uD83D\uDCCA \u062A\u0642\u0627\u0631\u064A\u0631 \u0627\u0644\u0641\u062A\u0631\u0629"),
         React.createElement("button", { className: "btn btn-danger", style: { marginTop: 11 }, onClick: onLogout }, "\uD83D\uDEAA \u062A\u0633\u062C\u064A\u0644 \u062E\u0631\u0648\u062C"),
         React.createElement("div", { className: "hint", style: { marginTop: 14 } },
-            "FAM STORE \u00B7 v1 \u0648\u064A\u0628 \u00B7 ",
+            (db.settings.name || 'FAM STORE') + " \u00B7 " + (db.settings.addr || '') + " \u00B7 v2 \u00B7 2026-06-27 \u00B7 ",
             role === 'admin' ? 'أدمن' : 'كاشير'));
 }
 /* ============================ APP ROOT ============================ */
-const TITLES = { dash: 'الرئيسية', box: 'الصندوق', omt: 'حوالات OMT', acc: 'إكسسوارات', mob: 'موبايل', rec: 'تعبئة رصيد', services: 'الخدمات', service: 'خدمة', cust: 'زبائن وديون', cust_stmt: 'كشف حساب', suppliers: 'الموردين', rev: 'مداخيل/مصاريف', invoice: 'فاتورة', omtcus: 'هويات OMT', calc: 'حاسبة', contacts: 'دفتر العناوين', reports: 'تقارير الفترة', audit: 'سجل العمليات', users: 'المستخدمين', settings: 'الإعدادات' };
+const TITLES = { dash: 'الرئيسية', box: 'الصندوق', omt: 'حوالات OMT', acc: 'إكسسوارات', mob: 'موبايل', rec: 'تعبئة رصيد', services: 'الخدمات', service: 'خدمة', cust: 'زبائن وديون', cust_stmt: 'كشف حساب', suppliers: 'الموردين', rev: 'مداخيل/مصاريف', invoice: 'فاتورة', omtcus: 'هويات OMT', calc: 'حاسبة', contacts: 'دفتر العناوين', reports: 'تقارير الفترة', audit: 'سجل العمليات', users: 'المستخدمين', cloudlog: 'سجل سحابي', settings: 'الإعدادات' };
 function LockScreen({ user, onUnlock, onLogout }) {
     const db = useDB();
     const [p, setP] = useState(''), [err, setErr] = useState('');
@@ -3906,7 +4020,8 @@ function LockScreen({ user, onUnlock, onLogout }) {
     return React.createElement("div", { className: "lock-ov" },
         React.createElement("div", { className: "lock-box" },
             React.createElement("div", { className: "lock-ic" }, "\uD83D\uDD12"),
-            React.createElement("div", { className: "lock-nm" }, user.username),
+            React.createElement("div", { className: "lock-nm" }, db.settings.name || 'FAM STORE'),
+            React.createElement("div", { className: "lock-sub" }, (db.settings.addr || '') + " \u00B7 \ud83d\udc64 " + user.username),
             React.createElement("div", { className: "lock-sub" }, "\u0627\u0644\u062A\u0637\u0628\u064A\u0642 \u0645\u0642\u0641\u0651\u0644 \u2014 \u0623\u062F\u062E\u0644 \u0643\u0644\u0645\u0629 \u0627\u0644\u0633\u0631 \u0644\u0644\u0645\u062A\u0627\u0628\u0639\u0629"),
             React.createElement("input", { type: "password", value: p, autoFocus: true, onChange: (e) => { setP(e.target.value); setErr(''); }, onKeyDown: (e) => e.key === 'Enter' && go(), placeholder: "\u2022\u2022\u2022\u2022" }),
             err && React.createElement("div", { className: "err" }, err),
@@ -3920,7 +4035,7 @@ function Shell() {
     const [locked, setLocked] = useState(false);
     useEffect(() => { if (!user)
         return; let t; const reset = () => { if (t)
-        clearTimeout(t); t = setTimeout(() => setLocked(true), 180000); }; const evs = ['mousedown', 'keydown', 'touchstart', 'scroll']; evs.forEach((e) => window.addEventListener(e, reset, { passive: true })); reset(); return () => { if (t)
+        clearTimeout(t); t = setTimeout(() => { try { if (_db.settings && _db.settings.autoLock === false) return; } catch (e) { } setLocked(true); }, 180000); }; const evs = ['mousedown', 'keydown', 'touchstart', 'scroll']; evs.forEach((e) => window.addEventListener(e, reset, { passive: true })); reset(); return () => { if (t)
         clearTimeout(t); evs.forEach((e) => window.removeEventListener(e, reset)); }; }, [user]);
     const [svc, setSvc] = useState('Whish');
     const [cust, setCust] = useState(null);
@@ -3992,6 +4107,9 @@ function Shell() {
             break;
         case 'users':
             body = React.createElement(Users, null);
+            break;
+        case 'cloudlog':
+            body = React.createElement(CloudLog, null);
             break;
         default: body = React.createElement(Dashboard, { go: go });
     }
