@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <meta name="theme-color" content="#0b3d2e" />
 <title>FAM STORE</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#0b6e4f">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FAM STORE">
 <!-- FAMSTORE web v1 — single file. React UMD via CDN, app logic precompiled (no Babel). -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -517,23 +525,9 @@ input,select,textarea{font-family:inherit;font-size:16px}
 .price-ref .pr-b{color:#b45309}
 .price-ref .pr-s{color:var(--brand-2)}
 .stat .v2{font-size:13px;font-weight:800;margin-top:2px;opacity:.95}
-.bc-scan-btn{flex-shrink:0;width:52px;border-radius:var(--r-sm);border:1.5px solid var(--brand-2);background:var(--brand-soft);color:var(--brand-2);font-size:22px;display:grid;place-items:center;transition:.15s}
 .bc-wrap{display:flex;gap:8px;align-items:stretch}
-/* ============ wide-desktop ============ */
-@media (min-width:1280px){
-  .app{max-width:1440px}
-  .page{max-width:1040px}
-  .page-dash{padding:20px 30px}
-  .topbar{padding:16px 30px}
-  .d-feed .feed{max-height:74vh}
-  .hero .cell .val{font-size:26px}
-  .stats{gap:12px}
-  .stat{padding:14px 12px}
-}
-@media (min-width:1700px){
-  .app{max-width:1600px}
-  .page{max-width:1140px}
-}
+.bc-scan-btn{flex-shrink:0;width:52px;border-radius:var(--r-sm);border:1.5px solid var(--brand-2);background:var(--brand-soft);color:var(--brand-2);font-size:22px;display:grid;place-items:center;transition:.15s}
+.audit-row .nm{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.55}
 </style>
 </head>
 <body>
@@ -548,10 +542,11 @@ input,select,textarea{font-family:inherit;font-size:16px}
 "use strict";
 const { useState, useEffect, useMemo, useRef, createContext, useContext } = React;
 /* ============================ STORAGE ============================ */
+try { if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('./sw.js'); } catch (e) { }
 const DB_KEY = 'famstore_db_v1';
 const WA_DEFAULT = 'مرحبا {name} 🌹\nهيدا كشف حسابكن لدى {shop}.\nرصيدكم عنّا: {balance}.\nيرجى التسديد عند الإمكان، وشكراً لتعاملكن معنا.';
 const BROADCAST_DEFAULT = '🎉 عرض خاص من FAM STORE!\nوصلتنا بضاعة جديدة وأسعار منيحة 📱\nمرحبا فيكن تمرقوا عـالمحل. للاستفسار: 71917163';
-const APP_VERSION = 'v26-DZ \u00b7 2026-07-25 \u2014 \u0646\u0642\u0644 \u0643\u0627\u0645\u0644 \u0645\u0646 \u0627\u0644\u0623\u0648\u0644';
+const APP_VERSION = 'v26-M2 \u00b7 2026-07-29 \u2014 \ud83d\udcdd \u0633\u062c\u0644 \u0627\u0644\u062a\u0639\u062f\u064a\u0644\u0627\u062a';
 const DEFAULT_SERVICES = () => [{ id: 'whish', name: 'Whish', icon: '💸' }, { id: 'ipick', name: 'iPick', icon: '🎫' }, { id: 'bycel', name: 'ByCel', icon: '📶' }, { id: 'ushare', name: 'Ushare', icon: '🔗' }];
 const USERS_DEFAULT = () => [{ id: 'u_admin', username: 'DAM', password: 'DAM', role: 'admin', active: true, perms: { profit: true, items: true, settings: true, delete: true } }, { id: 'u_fam', username: 'fam', password: 'fam', role: 'cashier', active: true, perms: { profit: false, items: false, settings: false, delete: true } }];
 const blank = () => ({
@@ -1996,14 +1991,20 @@ function EditModal({ spec, rec, onDone, close }) {
     const [v, setV] = useState(() => { const o = {}; spec.fields.forEach((f) => o[f.k] = rec[f.k] == null ? '' : String(rec[f.k])); return o; });
     const set = (k, val) => setV((s) => ({ ...s, [k]: val }));
     const save = () => {
-        spec.fields.forEach((f) => { if (f.kind === 'money' || f.kind === 'usd' || f.kind === 'qty')
-            rec[f.k] = N(v[f.k]);
-        else
-            rec[f.k] = v[f.k]; });
+        const _chg = [];
+        spec.fields.forEach((f) => {
+            const oldV = rec[f.k] == null ? '' : rec[f.k];
+            const newV = (f.kind === 'money' || f.kind === 'usd' || f.kind === 'qty') ? N(v[f.k]) : v[f.k];
+            if (String(oldV) !== String(newV)) {
+                const fmt = (x) => f.kind === 'money' ? fLBP(x) : f.kind === 'usd' ? fUSD(x) : (f.kind === 'select' && f.opts) ? (((f.opts.find((o) => String(o[0]) === String(x)) || [])[1]) || String(x)) : (String(x) === '' ? '\u2014' : String(x));
+                _chg.push(f.label + ': \u0645\u0646 ' + fmt(oldV) + ' \u0625\u0644\u0649 ' + fmt(newV));
+            }
+            rec[f.k] = newV;
+        });
         if (spec.recompute)
             spec.recompute(rec);
         rec._m = now();
-        logAudit('تعديل', spec.title || 'عملية');
+        logAudit('تعديل', (spec.title || 'عملية') + (_chg.length ? ' \u2014 ' + _chg.join(' \u00b7 ') : ''));
         saveDB();
         if (onDone)
             onDone();
@@ -4933,7 +4934,7 @@ function AuditLog() {
                     React.createElement("div", { className: "cap" }, "\u0639\u062F\u062F \u0627\u0644\u0639\u0645\u0644\u064A\u0627\u062A \u0627\u0644\u0645\u0633\u062C\u0651\u0644\u0629"),
                     React.createElement("div", { className: "val num" }, list.length)))),
         list.length === 0 ? React.createElement(Empty, { ic: "\uD83D\uDCCB", t: "\u0645\u0627 \u0641\u064A \u0639\u0645\u0644\u064A\u0627\u062A \u0645\u0633\u062C\u0651\u0644\u0629 \u0628\u0639\u062F" }) :
-            React.createElement("div", { className: "list", style: { marginTop: 13 } }, list.map((a) => React.createElement("div", { key: a.id, className: "row-item" },
+            React.createElement("div", { className: "list", style: { marginTop: 13 } }, list.map((a) => React.createElement("div", { key: a.id, className: "row-item audit-row" },
                 React.createElement("div", { className: "av", style: { background: a.action === 'حذف' ? 'var(--neg-soft)' : a.action === 'تعديل' ? 'var(--gold-soft)' : 'var(--brand-soft)', color: a.action === 'حذف' ? 'var(--neg)' : a.action === 'تعديل' ? 'var(--gold)' : 'var(--brand-2)' } }, a.action === 'حذف' ? '🗑' : a.action === 'تعديل' ? '✏️' : '•'),
                 React.createElement("div", { className: "main" },
                     React.createElement("div", { className: "nm" },
