@@ -527,6 +527,12 @@ input,select,textarea{font-family:inherit;font-size:16px}
 .bc-wrap{display:flex;gap:8px;align-items:stretch}
 .bc-scan-btn{flex-shrink:0;width:52px;border-radius:var(--r-sm);border:1.5px solid var(--brand-2);background:var(--brand-soft);color:var(--brand-2);font-size:22px;display:grid;place-items:center;transition:.15s}
 .audit-row .nm{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.55}
+
+/* ===== موبايل: كروت الصندوق التلاتة عمودي حتى ما ينقص شي من الشاشة ===== */
+@media (max-width:640px){
+  .hero .row{flex-direction:column;gap:8px}
+  .hero .cell{flex:none;min-width:0}
+}
 </style>
 </head>
 <body>
