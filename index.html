@@ -551,7 +551,7 @@ try { if ('serviceWorker' in navigator && location.protocol === 'https:') naviga
 const DB_KEY = 'famstore_db_v1';
 const WA_DEFAULT = 'مرحبا {name} 🌹\nهيدا كشف حسابكن لدى {shop}.\nرصيدكم عنّا: {balance}.\nيرجى التسديد عند الإمكان، وشكراً لتعاملكن معنا.';
 const BROADCAST_DEFAULT = '🎉 عرض خاص من FAM STORE!\nوصلتنا بضاعة جديدة وأسعار منيحة 📱\nمرحبا فيكن تمرقوا عـالمحل. للاستفسار: 71917163';
-const APP_VERSION = 'v26-M2.2 \u00b7 2026-08-25 \u2014 \ud83d\udee1\ufe0f \u0645\u0632\u0627\u0645\u0646\u0629 \u0627\u0644\u062a\u0639\u062f\u064a\u0644\u0627\u062a \u0628\u064a\u0646 \u0627\u0644\u0623\u062c\u0647\u0632\u0629';
+const APP_VERSION = 'v26-M3 \u00b7 2026-08-25 \u2014 \ud83d\udcdd ورقة اليومية + تحذير السالب';
 const DEFAULT_SERVICES = () => [{ id: 'whish', name: 'Whish', icon: '💸' }, { id: 'ipick', name: 'iPick', icon: '🎫' }, { id: 'bycel', name: 'ByCel', icon: '📶' }, { id: 'ushare', name: 'Ushare', icon: '🔗' }];
 const USERS_DEFAULT = () => [{ id: 'u_admin', username: 'DAM', password: 'DAM', role: 'admin', active: true, perms: { profit: true, items: true, settings: true, delete: true } }, { id: 'u_fam', username: 'fam', password: 'fam', role: 'cashier', active: true, perms: { profit: false, items: false, settings: false, delete: true } }];
 const blank = () => ({
@@ -559,6 +559,7 @@ const blank = () => ({
     services: DEFAULT_SERVICES(),
     users: USERS_DEFAULT(),
     omt: [], omtAdj: [], omtExch: [], omtcus: [],
+    yawmiyeh: [],
     acc: { items: [], sales: [], purchases: [] },
     mob: { items: [], sales: [], purchases: [] },
     rec: { items: [], sales: [], purchases: [] },
@@ -591,6 +592,8 @@ function normalize(db) {
         db.closings = [];
     if (!Array.isArray(db.audit))
         db.audit = [];
+    if (!Array.isArray(db.yawmiyeh))
+        db.yawmiyeh = [];
     if (db.settings.rateBuy == null)
         db.settings.rateBuy = db.settings.rate;
     if (db.settings.rateSell == null)
@@ -800,7 +803,7 @@ function saveDB() { _db._rev = Date.now(); try {
 }
 catch (e) {
     alert('\u26a0\ufe0f ما قدرت احفظ البيانات محلياً! المساحة يمكن ممتلئة.');
-} subs.forEach((f) => f()); schedulePush(); }
+} subs.forEach((f) => f()); schedulePush(); warnNegCash(); }
 /* ============================ MERGE SYNC (حماية تعدد الأجهزة) ============================ */
 /* شاهد حذف: بدل ما تختفي العملية بصمت، منسجّل إنها انحذفت لتنحذف عند كل الأجهزة */
 function tomb(id) { try {
@@ -844,7 +847,7 @@ function mergeDb(a, b) {
             m.set(r.id, r); });
         return Array.from(m.values()).filter((r) => !tombs[r.id]).sort((p, q) => N(q.ts) - N(p.ts));
     };
-    const LISTS = ['omt', 'omtAdj', 'omtExch', 'omtcus', 'other', 'debts', 'payments', 'customers', 'suppliers', 'supDebts', 'supPayments', 'revenue', 'expenses', 'invoices', 'contacts', 'closings', 'rates', 'services', 'users'];
+    const LISTS = ['omt', 'omtAdj', 'omtExch', 'omtcus', 'other', 'debts', 'payments', 'customers', 'suppliers', 'supDebts', 'supPayments', 'revenue', 'expenses', 'invoices', 'contacts', 'closings', 'yawmiyeh', 'rates', 'services', 'users'];
     LISTS.forEach((k) => { out[k] = M(a && a[k], b && b[k]); });
     /* بنود المداخيل: نصوص بلا أرقام — دمجها اتحاد مجموعات، مش عبر M() يلي بيمسحها */
     out.products = Array.from(new Set([].concat((a && a.products) || [], (b && b.products) || [])));
@@ -1483,6 +1486,29 @@ function SyncDot() {
 function useDB() { const [, n] = useState(0); useEffect(() => { const f = () => n((x) => x + 1); subs.add(f); return () => subs.delete(f); }, []); return _db; }
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const now = () => Date.now();
+let _gtoast = null;
+function gtoast(m, k) { try { if (_gtoast) _gtoast(m, k); } catch (e) { } }
+let _negL = false, _negU = false;
+/* الصندوق الحالي — نفس معادلة الرئيسية حرفياً، للتحذير من السالب لحظة الحفظ */
+function calcCash(db) { try {
+    const rate = db.settings.rate;
+    const acc = invStats(db.acc, rate), mob = invStats(db.mob, rate), rec = invStats(db.rec, rate);
+    const cust = custBalances(db), re = revExp(db);
+    const omt = omtBalance(db);
+    const sc = serviceCash(db), ex = exchCash(db);
+    const supPayL = (db.supPayments || []).reduce((s, x) => s + N(x.lbp), 0), supPayU = (db.supPayments || []).reduce((s, x) => s + N(x.usd), 0);
+    const l = N(db.opening.cashL) + (acc.T.saleL + mob.T.saleL + rec.T.saleL) - (acc.T.costL + mob.T.costL + rec.T.costL) + cust.rows.reduce((s, c) => s + (c.payL - c.debtL), 0) + re.netL + omt.lbp + sc.l + ex.l - supPayL;
+    const u = N(db.opening.cashU) + cust.rows.reduce((s, c) => s + (c.payU - c.debtU), 0) + re.netU + omt.usd + sc.u + ex.u - supPayU;
+    return { l: l, u: u };
+} catch (e) { return null; } }
+function warnNegCash() { try {
+    const cc = calcCash(_db);
+    if (!cc) return;
+    const firstL = cc.l < 0 && !_negL, firstU = cc.u < 0 && !_negU;
+    if (firstL) setTimeout(() => gtoast('⚠️ انتبه: نقد الليرة بالبرنامج صار سالب (' + fLBP(cc.l) + ' ل.ل) — في قبض أو تسوية ما انسجلت؟', 'out'), 2600);
+    if (firstU) setTimeout(() => gtoast('⚠️ انتبه: نقد الدولار بالبرنامج صار سالب (' + fUSD(cc.u) + ' $) — في قبض أو تسوية ما انسجلت؟', 'out'), firstL ? 5400 : 2600);
+    _negL = cc.l < 0; _negU = cc.u < 0;
+} catch (e) { } }
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const monthISO = () => new Date().toISOString().slice(0, 7);
 const ss = { get: (k) => { try {
@@ -1941,6 +1967,7 @@ function UIProvider({ children }) {
         catch (e) { } }, 80);
         return () => { clearTimeout(t); window.removeEventListener('afterprint', done); };
     }, [printDoc]);
+    _gtoast = api.toast;
     return React.createElement(UI.Provider, { value: api },
         children,
         toastMsg && React.createElement("div", { className: 'toast' + (toastKind ? ' t-' + toastKind : '') }, toastMsg),
@@ -2249,7 +2276,8 @@ function Dashboard({ go }) {
     useEffect(() => { try {
         const lb = db.settings.lastBackup || 0;
         const stale = (Date.now() - lb) > 3 * 86400000;
-        if (!fbDoc && stale && !ss.get('bk_warned')) {
+        const staleLong = (Date.now() - lb) > 30 * 86400000;
+        if (((!fbDoc && stale) || staleLong) && !ss.get('bk_warned')) {
             ss.set('bk_warned', '1');
             setTimeout(() => ui.toast('💾 ذكّرني: نزّل نسخة احتياطية من الإعدادات'), 1500);
         }
@@ -4476,6 +4504,105 @@ function dayLedger(db, iso) {
     rows.forEach((r) => { T.inL += r.inL; T.inU += r.inU; T.outL += r.outL; T.outU += r.outU; });
     return { rows, T };
 }
+/* ============================ ورقة اليومية — إدخال ورقة النهار ومطابقتها ============================ */
+const YAWM_ACCTS = ['صندوق', 'OMT', 'WHISH', 'iPick', 'أخرى'];
+const YAWM_KINDS = ['بيع', 'قبض', 'مصروف'];
+function Yawmiyeh() {
+    const db = useDB();
+    const ui = useUI();
+    const rc = useRole();
+    const [date, setDate] = useState(todayISO());
+    const [sheet, setSheet] = useState('');
+    const [kind, setKind] = useState('بيع');
+    const [acct, setAcct] = useState('صندوق');
+    const [name, setName] = useState('');
+    const [desc, setDesc] = useState('');
+    const [lbp, setLbp] = useState('');
+    const [usd, setUsd] = useState('');
+    if (!rc.admin)
+        return React.createElement("div", { className: "page" }, React.createElement(Empty, { ic: "\uD83D\uDD12", t: "\u0647\u0627\u0644\u0635\u0641\u062D\u0629 \u0644\u0644\u0645\u0633\u0624\u0648\u0644 \u0628\u0633" }));
+    const all = db.yawmiyeh || [];
+    const rows = all.filter((r) => r.date === date).sort((a, b) => N(a.ts) - N(b.ts));
+    const dates = Array.from(new Set(all.map((r) => r.date))).sort().reverse().slice(0, 30);
+    const sum = (k, cur) => rows.filter((r) => r.kind === k).reduce((s, r) => s + N(r[cur]), 0);
+    const tL = { s: sum('بيع', 'lbp'), q: sum('قبض', 'lbp'), m: sum('مصروف', 'lbp') };
+    const tU = { s: sum('بيع', 'usd'), q: sum('قبض', 'usd'), m: sum('مصروف', 'usd') };
+    const netL = tL.s + tL.q - tL.m, netU = tU.s + tU.q - tU.m;
+    const led = dayLedger(db, date);
+    const pNetL = N(led.T.inL) - N(led.T.outL), pNetU = N(led.T.inU) - N(led.T.outU);
+    const dL = netL - pNetL, dU = netU - pNetU;
+    const match = dL === 0 && dU === 0;
+    const sheetOf = rows.length ? (rows[rows.length - 1].sheet || '') : '';
+    const kindColor = (k) => k === 'مصروف' ? 'var(--danger, #b91c1c)' : k === 'قبض' ? 'var(--usd, #0e7490)' : 'var(--ok, #0b6e4f)';
+    const add = () => {
+        if (!N(lbp) && !N(usd))
+            return ui.toast('حط مبلغ — ليرة أو دولار');
+        const rec = { id: uid(), ts: now(), _m: now(), date: date, sheet: (sheet || sheetOf || '').trim(), kind: kind, acct: acct, name: name.trim(), desc: desc.trim(), lbp: N(lbp), usd: N(usd) };
+        db.yawmiyeh = [rec, ...all];
+        logAudit('إضافة', 'ورقة اليومية — ' + kind + (rec.name ? ' ' + rec.name : '') + ' ' + money2(rec.lbp, rec.usd));
+        saveDB();
+        setName(''); setDesc(''); setLbp(''); setUsd('');
+        ui.toast('✅ انضاف: ' + kind + ' ' + money2(rec.lbp, rec.usd), kind === 'مصروف' ? 'out' : 'in');
+    };
+    const onEnter = (e) => { if (e.key === 'Enter') add(); };
+    const del = (r) => ui.confirm({ title: 'حذف سطر من الورقة', desc: r.kind + ' — ' + (r.name || r.desc || '') + ' ' + money2(N(r.lbp), N(r.usd)) + ' \u2014 \u0623\u0643\u064A\u062F\u061F', lines: [], onOk: () => { (tomb(r.id), db.yawmiyeh = (db.yawmiyeh || []).filter((x) => x.id !== r.id)); saveDB(); ui.toast('انحذف السطر'); } });
+    const printSheet = () => {
+        const head = printHeader(db, 'ورقة اليومية', fDate(date) + ((sheetOf || sheet) ? ' — ورقة رقم ' + esc(sheetOf || sheet) : ''));
+        const th = (v) => '<th style="padding:6px;border:1px solid #ccc;background:#f2f7f4;font-size:11px">' + v + '</th>';
+        const td = (v, ex) => '<td style="padding:5px 6px;border:1px solid #ddd;font-size:11.5px;' + (ex || '') + '">' + v + '</td>';
+        let body = '';
+        rows.forEach((r, i) => { body += '<tr>' + td(String(i + 1)) + td(esc(r.kind)) + td(esc(r.acct || ''), 'text-align:right') + td(esc(r.name || ''), 'text-align:right') + td(esc(r.desc || ''), 'text-align:right') + td(N(r.lbp) ? fLBP(r.lbp) : '\u2014', 'text-align:left') + td(N(r.usd) ? fUSD(r.usd) : '\u2014', 'text-align:left') + '</tr>'; });
+        const tot = '<tr style="font-weight:800;background:#fafafa">' + td('') + td('الصافي') + td('') + td('') + td('') + td(fLBP(netL), 'text-align:left') + td(fUSD(netU), 'text-align:left') + '</tr>';
+        ui.print({ title: 'ورقة اليومية', html: '<div style="font-family:Cairo,Tahoma,sans-serif;direction:rtl;padding:20px;color:#1a1a1a">' + head + '<table style="width:100%;border-collapse:collapse"><thead><tr>' + th('#') + th('النوع') + th('الحساب') + th('الزبون') + th('البيان') + th('ل.ل') + th('$') + '</tr></thead><tbody>' + body + tot + '</tbody></table><div style="margin-top:10px;font-size:11px;color:#777">عدد الأسطر: ' + rows.length + ' · صافي البرنامج بنفس اليوم: ' + fLBP(pNetL) + ' ل.ل · ' + fUSD(pNetU) + ' $ · الفرق: ' + fLBP(dL) + ' ل.ل · ' + fUSD(dU) + ' $</div></div>' });
+    };
+    const kv = (k, v, color) => React.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', padding: '6px 2px', borderBottom: '1px dashed var(--line, #e5e7eb)', fontSize: 13.5 } },
+        React.createElement("span", { style: { fontWeight: 600 } }, k),
+        React.createElement("span", { className: "num", style: { fontWeight: 800, color: color || 'inherit' } }, v));
+    return React.createElement("div", { className: "page" },
+        React.createElement("div", { className: "card" },
+            React.createElement("div", { className: "two" },
+                React.createElement(Field, { label: "\u0627\u0644\u062A\u0627\u0631\u064A\u062E" },
+                    React.createElement("input", { type: "date", value: date, onChange: (e) => setDate(e.target.value) })),
+                React.createElement(Field, { label: "\u0631\u0642\u0645 \u0627\u0644\u0648\u0631\u0642\u0629" },
+                    React.createElement("input", { value: sheet, onChange: (e) => setSheet(e.target.value), placeholder: sheetOf || '\u0645\u062B\u0644\u0627\u064B 14' }))),
+            dates.length > 0 && React.createElement("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 } },
+                dates.map((d) => React.createElement("button", { key: d, className: 'pill ' + (d === date ? 'on-in' : ''), onClick: () => setDate(d) }, fDate(d))))),
+        React.createElement("div", { className: "card", style: { marginTop: 10 } },
+            React.createElement("div", { className: "pills" },
+                YAWM_KINDS.map((k) => React.createElement("button", { key: k, className: 'pill ' + (kind === k ? (k === 'مصروف' ? 'on-out' : 'on-in') : ''), onClick: () => setKind(k) }, k))),
+            React.createElement("div", { className: "two", style: { marginTop: 8 } },
+                React.createElement(Field, { label: "\u0627\u0644\u062D\u0633\u0627\u0628" },
+                    React.createElement("select", { value: acct, onChange: (e) => setAcct(e.target.value) },
+                        YAWM_ACCTS.map((a) => React.createElement("option", { key: a, value: a }, a)))),
+                React.createElement(Field, { label: "\u0627\u0644\u0632\u0628\u0648\u0646 / \u0627\u0644\u062C\u0647\u0629" },
+                    React.createElement("input", { value: name, onChange: (e) => setName(e.target.value), onKeyDown: onEnter, placeholder: "\u0627\u062E\u062A\u064A\u0627\u0631\u064A" }))),
+            React.createElement(Field, { label: "\u0627\u0644\u0628\u064A\u0627\u0646" },
+                React.createElement("input", { value: desc, onChange: (e) => setDesc(e.target.value), onKeyDown: onEnter, placeholder: "\u0634\u0648 \u0635\u0627\u0631\u061F (\u0627\u062E\u062A\u064A\u0627\u0631\u064A)" })),
+            React.createElement("div", { className: "two" },
+                React.createElement(Field, { label: "\u0644\u064A\u0631\u0629 \u0644.\u0644" },
+                    React.createElement("input", { className: "money", inputMode: "decimal", value: lbp, onChange: (e) => setLbp(e.target.value), onKeyDown: onEnter, placeholder: "0" })),
+                React.createElement(Field, { label: "\u062F\u0648\u0644\u0627\u0631 $" },
+                    React.createElement("input", { className: "money", inputMode: "decimal", value: usd, onChange: (e) => setUsd(e.target.value), onKeyDown: onEnter, placeholder: "0" }))),
+            React.createElement("button", { className: "btn btn-primary", onClick: add }, "+ \u0632\u064A\u062F \u0627\u0644\u0633\u0637\u0631")),
+        React.createElement("div", { className: "card", style: { marginTop: 10 } },
+            kv('بيع', fLBP(tL.s) + ' ل.ل · ' + fUSD(tU.s) + ' $'),
+            kv('قبض', fLBP(tL.q) + ' ل.ل · ' + fUSD(tU.q) + ' $'),
+            kv('مصروف', fLBP(tL.m) + ' ل.ل · ' + fUSD(tU.m) + ' $', 'var(--danger, #b91c1c)'),
+            kv('صافي الورقة', fLBP(netL) + ' ل.ل · ' + fUSD(netU) + ' $', '#0b6e4f'),
+            kv('صافي البرنامج (دفتر اليومية)', fLBP(pNetL) + ' ل.ل · ' + fUSD(pNetU) + ' $'),
+            kv('الفرق', fLBP(dL) + ' ل.ل · ' + fUSD(dU) + ' $', match ? '#0b6e4f' : 'var(--danger, #b91c1c)'),
+            React.createElement("div", { className: "hint", style: { marginTop: 8, textAlign: 'center', fontWeight: 700, color: match ? '#0b6e4f' : 'var(--danger, #b91c1c)' } }, match ? '\u2705 \u0627\u0644\u0648\u0631\u0642\u0629 \u0645\u0637\u0627\u0628\u0642\u0629 \u0644\u0644\u0628\u0631\u0646\u0627\u0645\u062C \u062A\u0645\u0627\u0645\u0627\u064B' : '\u26A0\uFE0F \u0641\u064A \u0641\u0631\u0642 \u0628\u064A\u0646 \u0627\u0644\u0648\u0631\u0642\u0629 \u0648\u0627\u0644\u0628\u0631\u0646\u0627\u0645\u062C \u2014 \u062F\u0642\u0642\u0648\u0627 \u0642\u0628\u0644 \u0627\u0644\u062A\u0642\u0641\u064A\u0644'),
+            React.createElement("button", { className: "btn btn-ghost", style: { marginTop: 8 }, onClick: printSheet }, "\uD83D\uDDA8\uFE0F \u0637\u0628\u0627\u0639\u0629 \u0627\u0644\u0648\u0631\u0642\u0629")),
+        React.createElement("div", { className: "card", style: { marginTop: 10 } },
+            rows.length === 0 && React.createElement(Empty, { ic: "\uD83D\uDCDD", t: "\u0644\u0633\u0627 \u0645\u0627 \u0641\u064A \u0623\u0633\u0637\u0631 \u0644\u0647\u0627\u0644\u064A\u0648\u0645" }),
+            rows.map((r, i) => React.createElement("div", { key: r.id, style: { display: 'flex', alignItems: 'center', gap: 8, padding: '7px 2px', borderBottom: '1px solid var(--line, #eee)', fontSize: 13 } },
+                React.createElement("span", { className: "hint", style: { width: 18 } }, String(i + 1)),
+                React.createElement("span", { style: { fontWeight: 800, color: kindColor(r.kind), minWidth: 44 } }, r.kind),
+                React.createElement("span", { className: "hint", style: { minWidth: 48 } }, r.acct || ''),
+                React.createElement("span", { style: { flex: 1, fontWeight: 600 } }, (r.name || '') + (r.desc ? ' \u2014 ' + r.desc : '')),
+                React.createElement("span", { className: "num", style: { fontWeight: 700 } }, money2(N(r.lbp), N(r.usd))),
+                React.createElement("button", { className: "btn btn-ghost btn-sm", onClick: () => del(r) }, "\u2715"))))); 
+}
 function DailyJournal() {
     const db = useDB();
     const ui = useUI();
@@ -5401,7 +5528,7 @@ function Settings({ onLogout, go }) {
             role === 'admin' ? 'أدمن' : 'كاشير'));
 }
 /* ============================ APP ROOT ============================ */
-const TITLES = { dash: 'الرئيسية', box: 'الصندوق', omt: 'حوالات OMT', acc: 'إكسسوارات', mob: 'موبايل', rec: 'تعبئة رصيد', services: 'الخدمات', service: 'خدمة', cust: 'زبائن وديون', cust_stmt: 'كشف حساب', suppliers: 'الموردين', rev: 'مداخيل/مصاريف', invoice: 'فاتورة', omtcus: 'هويات OMT', calc: 'حاسبة', contacts: 'دفتر العناوين', daily: 'دفتر اليومية', reports: 'تقارير الفترة', audit: 'سجل العمليات', users: 'المستخدمين', settings: 'الإعدادات', cloudlog: 'سجل سحابي تجريبي' };
+const TITLES = { dash: 'الرئيسية', box: 'الصندوق', omt: 'حوالات OMT', acc: 'إكسسوارات', mob: 'موبايل', rec: 'تعبئة رصيد', services: 'الخدمات', service: 'خدمة', cust: 'زبائن وديون', cust_stmt: 'كشف حساب', suppliers: 'الموردين', rev: 'مداخيل/مصاريف', invoice: 'فاتورة', omtcus: 'هويات OMT', calc: 'حاسبة', contacts: 'دفتر العناوين', daily: 'دفتر اليومية', yawm: 'ورقة اليومية', reports: 'تقارير الفترة', audit: 'سجل العمليات', users: 'المستخدمين', settings: 'الإعدادات', cloudlog: 'سجل سحابي تجريبي' };
 function LockScreen({ user, onUnlock, onLogout }) {
     const db = useDB();
     const [p, setP] = useState(''), [err, setErr] = useState('');
@@ -5515,10 +5642,13 @@ function Shell() {
         case 'users':
             body = React.createElement(Users, null);
             break;
+        case 'yawm':
+            body = React.createElement(Yawmiyeh, null);
+            break;
         default: body = React.createElement(Dashboard, { go: go });
     }
     const navItems = [['dash', '🏠', 'رئيسية'], ['omt', '💱', 'OMT'], ['box', '📒', 'الصندوق'], ['cust', '👥', 'زبائن'], ['settings', '⚙️', 'إعدادات']];
-    const topNav = [['dash', 'الرئيسية'], ['omt', 'OMT'], ['acc', 'إكسسوار'], ['mob', 'موبايل'], ['rec', 'تعبئة'], ['services', 'خدمات'], ['cust', 'زبائن'], ['suppliers', 'موردين'], ['rev', 'مداخيل'], ['invoice', 'فاتورة'], ['contacts', 'عناوين'], ['daily', 'اليومية'], ['reports', 'تقارير'], ['box', 'الصندوق'], ['settings', 'إعدادات']];
+    const topNav = [['dash', 'الرئيسية'], ['omt', 'OMT'], ['acc', 'إكسسوار'], ['mob', 'موبايل'], ['rec', 'تعبئة'], ['services', 'خدمات'], ['cust', 'زبائن'], ['suppliers', 'موردين'], ['rev', 'مداخيل'], ['invoice', 'فاتورة'], ['contacts', 'عناوين'], ['daily', 'اليومية'], ['yawm', 'ورقة اليومية'], ['reports', 'تقارير'], ['box', 'الصندوق'], ['settings', 'إعدادات']];
     const backTarget = view === 'service' ? 'services' : view === 'cust_stmt' ? 'cust' : 'dash';
     return React.createElement("div", { className: "app" },
         locked && React.createElement(LockScreen, { user: user, onUnlock: () => setLocked(false), onLogout: logout }),
