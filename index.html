@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<meta name="theme-color" content="#0b3d2e" />
 <title>FAM STORE</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <meta name="theme-color" content="#0b6e4f">
@@ -546,7 +545,7 @@ try { if ('serviceWorker' in navigator && location.protocol === 'https:') naviga
 const DB_KEY = 'famstore_db_v1';
 const WA_DEFAULT = 'مرحبا {name} 🌹\nهيدا كشف حسابكن لدى {shop}.\nرصيدكم عنّا: {balance}.\nيرجى التسديد عند الإمكان، وشكراً لتعاملكن معنا.';
 const BROADCAST_DEFAULT = '🎉 عرض خاص من FAM STORE!\nوصلتنا بضاعة جديدة وأسعار منيحة 📱\nمرحبا فيكن تمرقوا عـالمحل. للاستفسار: 71917163';
-const APP_VERSION = 'v26-M2.1 \u00b7 2026-07-30 \u2014 \ud83d\udcdd \u0633\u062c\u0644 \u062a\u0639\u062f\u064a\u0644 \u0627\u0644\u0623\u0635\u0646\u0627\u0641';
+const APP_VERSION = 'v26-M2.2 \u00b7 2026-08-25 \u2014 \ud83d\udee1\ufe0f \u0645\u0632\u0627\u0645\u0646\u0629 \u0627\u0644\u062a\u0639\u062f\u064a\u0644\u0627\u062a \u0628\u064a\u0646 \u0627\u0644\u0623\u062c\u0647\u0632\u0629';
 const DEFAULT_SERVICES = () => [{ id: 'whish', name: 'Whish', icon: '💸' }, { id: 'ipick', name: 'iPick', icon: '🎫' }, { id: 'bycel', name: 'ByCel', icon: '📶' }, { id: 'ushare', name: 'Ushare', icon: '🔗' }];
 const USERS_DEFAULT = () => [{ id: 'u_admin', username: 'DAM', password: 'DAM', role: 'admin', active: true, perms: { profit: true, items: true, settings: true, delete: true } }, { id: 'u_fam', username: 'fam', password: 'fam', role: 'cashier', active: true, perms: { profit: false, items: false, settings: false, delete: true } }];
 const blank = () => ({
@@ -564,7 +563,7 @@ const blank = () => ({
 function normalize(db) {
     ['acc', 'mob', 'rec'].forEach(k => {
         db[k] = db[k] || { items: [], sales: [], purchases: [] };
-        db[k].items = (db[k].items || []).map((it) => typeof it === 'string' ? { id: uid(), name: it, cat: '', img: '', code: '', buy: 0, sell: 0, pcurr: 'LBP' } : { id: it.id || uid(), name: it.name, cat: it.cat || '', img: it.img || '', code: it.code || '', buy: N(it.buy) || 0, sell: N(it.sell) || 0, pcurr: it.pcurr || 'LBP' });
+        db[k].items = (db[k].items || []).map((it) => typeof it === 'string' ? { id: uid(), name: it, cat: '', img: '', code: '', buy: 0, sell: 0, pcurr: 'LBP' } : { id: it.id || uid(), name: it.name, cat: it.cat || '', img: it.img || '', code: it.code || '', buy: N(it.buy) || 0, sell: N(it.sell) || 0, pcurr: it.pcurr || 'LBP', ...(N(it._m) ? { _m: N(it._m) } : {}) });
     });
     if (!db.services || !db.services.length)
         db.services = DEFAULT_SERVICES();
@@ -578,7 +577,7 @@ function normalize(db) {
         db.opening[k] = 0; });
     if (!db.opening.services)
         db.opening.services = {};
-    db.services = db.services.map((s) => ({ ...s, items: Array.isArray(s.items) ? s.items.map((it) => ({ id: it.id || uid(), name: it.name, buy: N(it.buy), sell: N(it.sell), curr: it.curr || 'LBP', img: it.img || '' })) : [] }));
+    db.services = db.services.map((s) => ({ ...s, items: Array.isArray(s.items) ? s.items.map((it) => ({ id: it.id || uid(), name: it.name, buy: N(it.buy), sell: N(it.sell), curr: it.curr || 'LBP', img: it.img || '', ...(N(it._m) ? { _m: N(it._m) } : {}) })) : [] }));
     if (!Array.isArray(db.contacts))
         db.contacts = [];
     db.contacts = db.contacts.map((c) => ({ ...c, desc: c.desc || '', reminders: Array.isArray(c.reminders) ? c.reminders : [] }));
@@ -602,7 +601,7 @@ function normalize(db) {
         db.settings.broadcastMsg = BROADCAST_DEFAULT;
     if (!Array.isArray(db.users) || !db.users.length)
         db.users = USERS_DEFAULT();
-    db.users = db.users.map((u) => { const ad = u.role === 'admin'; const pr = u.perms || {}; return { id: u.id || uid(), username: u.username, password: u.password, role: ad ? 'admin' : 'cashier', active: u.active !== false, perms: { profit: ad || !!pr.profit, items: ad || !!pr.items, settings: ad || !!pr.settings, delete: pr.delete !== false } }; });
+    db.users = db.users.map((u) => { const ad = u.role === 'admin'; const pr = u.perms || {}; return { id: u.id || uid(), username: u.username, password: u.password, role: ad ? 'admin' : 'cashier', active: u.active !== false, perms: { profit: ad || !!pr.profit, items: ad || !!pr.items, settings: ad || !!pr.settings, delete: pr.delete !== false }, ...(N(u._m) ? { _m: N(u._m) } : {}) }; });
     if (db.settings.waTemplate)
         db.settings.waTemplate = db.settings.waTemplate.replace('الرصيد المستحق علينا منكن', 'الرصيد المستحق عليكم').replace('الرصيد المستحق عليكم:', 'رصيدكم عنّا:');
     return db;
@@ -2077,7 +2076,7 @@ function Row({ ic, bg, c, name, sub, amt, sub2, tag, tagClass, img, onClick }) {
 }
 function receiptHTML(db, title, rows) {
     const s = db.settings;
-    const L = (rows || []).map((r) => '<div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;margin:4px 0"><span>' + r[0] + '</span><span style="font-weight:700">' + r[1] + '</span></div>').join('');
+    const L = (rows || []).map((r) => '<div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;margin:4px 0"><span>' + esc(r[0]) + '</span><span style="font-weight:700">' + esc(r[1]) + '</span></div>').join('');
     let tm = '';
     try {
         tm = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
@@ -2087,11 +2086,11 @@ function receiptHTML(db, title, rows) {
     }
     return '<div style="font-family:Cairo,Tahoma,sans-serif;direction:rtl;width:280px;margin:0 auto;padding:12px;color:#000;background:#fff">'
         + '<div style="text-align:center;border-bottom:1px dashed #555;padding-bottom:9px;margin-bottom:9px">'
-        + '<div style="font-size:19px;font-weight:800">' + (s.name || 'FAM STORE') + '</div>'
-        + (s.phone ? '<div style="font-size:12px">' + s.phone + '</div>' : '')
-        + (s.addr ? '<div style="font-size:11px;color:#444">' + s.addr + '</div>' : '')
+        + '<div style="font-size:19px;font-weight:800">' + esc(s.name || 'FAM STORE') + '</div>'
+        + (s.phone ? '<div style="font-size:12px">' + esc(s.phone) + '</div>' : '')
+        + (s.addr ? '<div style="font-size:11px;color:#444">' + esc(s.addr) + '</div>' : '')
         + '</div>'
-        + '<div style="text-align:center;font-weight:800;font-size:15px;margin-bottom:9px">' + title + '</div>'
+        + '<div style="text-align:center;font-weight:800;font-size:15px;margin-bottom:9px">' + esc(title) + '</div>'
         + L
         + '<div style="border-top:1px dashed #555;margin-top:11px;padding-top:9px;text-align:center;font-size:11px;color:#444">' + fDate(todayISO()) + ' · ' + tm + '<br/>شكراً لتعاملكن معنا 🌹</div>'
         + '</div>';
@@ -2852,7 +2851,7 @@ function InvStock({ storeKey }) {
     const sorted = [...rows].sort((a, b) => b.stock - a.stock);
     const printReport = () => {
         const body = sorted.map((r) => `<tr>
-      <td>${r.name}${r.cat ? (' <span style="color:#888;font-size:11px">· ' + r.cat + '</span>') : ''}</td>
+      <td>${esc(r.name)}${r.cat ? (' <span style="color:#888;font-size:11px">· ' + esc(r.cat) + '</span>') : ''}</td>
       <td style="text-align:center;font-weight:700;color:${r.stock <= 0 ? '#c0392b' : '#0b6e4f'}">${r.stock}</td>
       <td style="text-align:center">${fLBP(r.avg)}</td>
       <td style="text-align:center">${fLBP(r.stockVal)}</td>
@@ -2910,7 +2909,7 @@ function InvItems({ storeKey }) {
             return ui.toast('اكتب اسم الصنف');
         if (store.items.some((it) => it.name === v))
             return ui.toast('الصنف موجود');
-        store.items.push({ id: uid(), name: v, cat: cat.trim(), code: code.trim(), img, buy: N(buy) || 0, sell: N(sell) || 0, pcurr });
+        store.items.push({ id: uid(), _m: now(), name: v, cat: cat.trim(), code: code.trim(), img, buy: N(buy) || 0, sell: N(sell) || 0, pcurr });
         logAudit('إضافة', 'صنف جديد — ' + v);
         saveDB();
         setNm('');
@@ -2989,6 +2988,7 @@ function ItemSheet({ store, item, close }) {
         item.buy = N(buy) || 0;
         item.sell = N(sell) || 0;
         item.pcurr = pcurr;
+        item._m = now();
         if (oldName !== v) {
             ['sales', 'purchases'].forEach(kk => store[kk].forEach((r) => { if (r.item === oldName)
                 r.item = v; }));
@@ -3171,7 +3171,7 @@ function ServicePage({ svc }) {
         if (items.some((i) => i.name === v))
             return ui.toast('الصنف موجود');
         ui.confirm({ title: 'تأكيد إضافة صنف', desc: 'صنف جديد للخدمة ' + svc + ':', lines: [['الاسم', v], ['سعر الشراء', mc(mcur, buy)], ['سعر البيع', mc(mcur, sell)]],
-            onOk: () => { sObj.items = [...(sObj.items || []), { id: uid(), name: v, buy: N(buy), sell: N(sell), curr: mcur, img }]; saveDB(); setNm(''); setBuy(''); setSell(''); setImg(''); ui.toast('انضاف الصنف ✓'); } });
+            onOk: () => { sObj.items = [...(sObj.items || []), { id: uid(), _m: now(), name: v, buy: N(buy), sell: N(sell), curr: mcur, img }]; saveDB(); setNm(''); setBuy(''); setSell(''); setImg(''); ui.toast('انضاف الصنف ✓'); } });
     };
     return React.createElement("div", { className: "page" },
         React.createElement("div", { className: "hero compact" },
@@ -3310,6 +3310,7 @@ function Users() {
         real.role = eu.role;
         real.active = eu.active !== false;
         real.perms = eu.role === 'admin' ? { profit: true, items: true, settings: true, delete: true } : { ...eu.perms };
+        real._m = now();
         saveDB();
         setEu(null);
         ui.toast('انحفظ ✓');
@@ -3413,6 +3414,7 @@ function ContactSheet({ contact, close }) {
             real.phone = phone.trim();
             real.desc = desc.trim();
             real.reminders = rems;
+            real._m = now();
         }
         else {
             db.contacts = [...(db.contacts || []), { id: uid(), name: name.trim(), phone: phone.trim(), desc: desc.trim(), reminders: rems }];
@@ -3565,7 +3567,7 @@ function AddressBook() {
         if (real) {
             const rr = (real.reminders || []).find((r) => r.id === x.r.id);
             if (rr) {
-                rr.lastSent = now();
+                rr.lastSent = now(); rr._m = now();
                 saveDB();
             }
         }
@@ -4041,7 +4043,7 @@ function CustStatement({ cust, back }) {
       </table>
       <div style="margin-top:16px;padding:12px;background:#eef4f1;border-radius:8px;display:flex;justify-content:space-between;font-weight:800">
         <span>الرصيد المستحق</span><span style="color:#c0392b">${balStr}</span></div>
-      <div style="margin-top:26px;font-size:11px;color:#999;text-align:center">شكراً لتعاملكم مع ${db.settings.name}</div></div>`;
+      <div style="margin-top:26px;font-size:11px;color:#999;text-align:center">شكراً لتعاملكم مع ${esc(db.settings.name)}</div></div>`;
         ui.print({ title: 'كشف حساب ' + cust.name, html });
     };
     return React.createElement("div", { className: "page" },
@@ -4193,7 +4195,7 @@ function Invoice() {
         if (lines.length === 0)
             return ui.toast('ضيف بنود أوّلاً');
         const head = printHeader(db, 'فاتورة #' + num, (cust ? cust + ' · ' : '') + fDate(todayISO()));
-        const rows = lines.map((l) => `<tr><td>${l.prod}</td><td style="text-align:center">${N(l.qty)}</td><td style="text-align:center">${mc(l.curr, l.price)}</td><td style="text-align:center">${mc(l.curr, l.total)}</td></tr>`).join('');
+        const rows = lines.map((l) => `<tr><td>${esc(l.prod)}</td><td style="text-align:center">${N(l.qty)}</td><td style="text-align:center">${mc(l.curr, l.price)}</td><td style="text-align:center">${mc(l.curr, l.total)}</td></tr>`).join('');
         const html = `<div style="font-family:Cairo,Tahoma,sans-serif;direction:rtl;padding:22px;color:#1a1a1a">${head}<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#0b6e4f;color:#fff"><th style="padding:8px;text-align:right">المنتج</th><th style="padding:8px">كمية</th><th style="padding:8px">سعر</th><th style="padding:8px">إجمالي</th></tr></thead><tbody>${rows}</tbody></table><div style="margin-top:14px;padding:12px;background:#eef4f1;border-radius:8px;display:flex;justify-content:space-between;font-weight:800;font-size:15px"><span>المجموع</span><span style="color:#0b6e4f">${fLBP(total)} ل.ل</span></div><div style="margin-top:24px;font-size:11px;color:#999;text-align:center">شكراً لزيارتكم 🌹</div></div>`;
         ui.print({ title: 'فاتورة ' + num, html });
     };
