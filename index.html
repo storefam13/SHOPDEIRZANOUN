@@ -551,7 +551,7 @@ try { if ('serviceWorker' in navigator && location.protocol === 'https:') naviga
 const DB_KEY = 'famstore_db_v1';
 const WA_DEFAULT = 'مرحبا {name} 🌹\nهيدا كشف حسابكن لدى {shop}.\nرصيدكم عنّا: {balance}.\nيرجى التسديد عند الإمكان، وشكراً لتعاملكن معنا.';
 const BROADCAST_DEFAULT = '🎉 عرض خاص من FAM STORE!\nوصلتنا بضاعة جديدة وأسعار منيحة 📱\nمرحبا فيكن تمرقوا عـالمحل. للاستفسار: 71917163';
-const APP_VERSION = 'v26-M4 \u00b7 2026-08-25 \u2014 \ud83c\udfe6 مراكز الجهات + ربح ١٢ شهر';
+const APP_VERSION = 'v26-M4.1 \u00b7 2026-08-25 \u2014 \ud83d\udd11 استرجاع كلمة سر الحذف';
 const DEFAULT_SERVICES = () => [{ id: 'whish', name: 'Whish', icon: '💸' }, { id: 'ipick', name: 'iPick', icon: '🎫' }, { id: 'bycel', name: 'ByCel', icon: '📶' }, { id: 'ushare', name: 'Ushare', icon: '🔗' }];
 const USERS_DEFAULT = () => [{ id: 'u_admin', username: 'DAM', password: 'DAM', role: 'admin', active: true, perms: { profit: true, items: true, settings: true, delete: true } }, { id: 'u_fam', username: 'fam', password: 'fam', role: 'cashier', active: true, perms: { profit: false, items: false, settings: false, delete: true } }];
 const blank = () => ({
@@ -5454,12 +5454,32 @@ function Settings({ onLogout, go }) {
     catch (x) {
         ui.toast('ملف غير صالح');
     } }; r.readAsText(file); };
+    const resetDelPass = () => {
+        if (!admin)
+            return ui.toast('بس المسؤول بيقدر يعمل إعادة تعيين', 'out');
+        const mp = prompt('للتأكيد — كلمة سر دخولك أنت (' + (_user || '') + '):');
+        if (mp == null)
+            return;
+        const me = (db.users || []).find((x) => x.username === _user && String(x.password) === mp && x.role === 'admin');
+        if (!me)
+            return ui.toast('كلمة سر الدخول غلط', 'out');
+        const nv = prompt('كلمة سر الحذف الجديدة (٤ خانات عالأقل):');
+        if (!nv || nv.length < 4)
+            return ui.toast('قصيرة كتير — ٤ خانات عالأقل');
+        const nv2 = prompt('عيد كتابتها للتأكيد:');
+        if (nv !== nv2)
+            return ui.toast('ما تطابقوا — ما تغيّر شي', 'out');
+        db.settings.delHash = pinHash(nv);
+        logAudit('أمان', 'إعادة تعيين كلمة سر الحذف (بكلمة سر المسؤول)');
+        saveDB();
+        ui.toast('🔑 انعيّنت كلمة سر حذف جديدة — احفظها منيح', 'ok');
+    };
     const changeDelPass = () => {
         const cur = prompt('كلمة سر الحذف الحالية:');
         if (cur == null)
             return;
         if (!checkDelPass(db, cur))
-            return ui.toast('كلمة السر غلط', 'out');
+            return ui.toast('كلمة السر غلط — إذا ما بتتذكرها استعمل «نسيت كلمة سر الحذف»', 'out');
         const nv = prompt('كلمة السر الجديدة (يفضّل طويلة — حروف وأرقام):');
         if (!nv || nv.length < 4)
             return ui.toast('قصيرة كتير — ٤ خانات عالأقل');
@@ -5525,6 +5545,7 @@ function Settings({ onLogout, go }) {
                 React.createElement("div", { className: "btn-row" },
                     React.createElement("button", { className: "btn btn-ghost", onClick: exportJSON }, "\u2B07 \u062A\u0646\u0632\u064A\u0644 \u0646\u0633\u062E\u0629"),
             React.createElement("button", { className: "btn btn-ghost", style: { marginTop: 9 }, onClick: changeDelPass }, "\uD83D\uDD10 \u062A\u063A\u064A\u064A\u0631 \u0643\u0644\u0645\u0629 \u0633\u0631 \u0627\u0644\u062D\u0630\u0641"),
+            admin && React.createElement("button", { className: "btn btn-ghost", style: { marginTop: 6 }, onClick: resetDelPass }, "\uD83D\uDD11 \u0646\u0633\u064A\u062A \u0643\u0644\u0645\u0629 \u0633\u0631 \u0627\u0644\u062D\u0630\u0641\u061F"),
                     React.createElement("label", { className: "btn btn-ghost", style: { cursor: 'pointer' } },
                         "\u2B06 \u0627\u0633\u062A\u064A\u0631\u0627\u062F",
                         React.createElement("input", { type: "file", accept: "application/json", onChange: importJSON, style: { display: 'none' } }))),
