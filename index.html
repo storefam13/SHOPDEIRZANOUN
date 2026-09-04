@@ -372,7 +372,7 @@ td{padding:.45rem .5rem;border-bottom:1px solid var(--line);font-weight:600}
    البيانات على مجموعات mk2_* — منفصلة تماماً عن بيانات النسخة القديمة
    ═══════════════════════════════════════════════════════════════ */
 'use strict';
-var APP_BUILD=220;
+var APP_BUILD=221;
 var MIN_BUILD=201;
 
 /* ── Firebase — نفس المشروع (نفس حسابات الدخول الرسمية)، مجموعات جديدة ── */
@@ -1466,11 +1466,16 @@ function doDelOp(id){
 /* ── 🤝 المطابقة — بالرصيدين دولار وليرة (مدير فقط لأنها بتعدّل أرصدة) ── */
 /* ── 🕐 الساعة بالشريط — بتوقيت بيروت، وبتحدّث خانة الوقت بالنموذج إذا مش معدّلة يدوياً ── */
 function tickClock(){
-  var t=nowTime();var el=$('clockT');if(el)el.textContent=t;
-  var ti=$('opTime');if(ti&&!_opManual.time&&document.activeElement!==ti)ti.value=t;
-  var di=$('opDate');if(di&&!_opManual.date&&document.activeElement!==di)di.value=todayStr();
+  try{
+    var p=tzParts(Date.now()),t=p.hour+':'+p.minute;
+    var sec=('0'+new Date().getSeconds()).slice(-2);
+    var el=$('clockT');if(el)el.innerHTML=t+'<small style="opacity:.6;font-size:.62em">:'+sec+'</small>';   /* الثواني بتبيّن إنها حيّة */
+    var ti=$('opTime');if(ti&&!_opManual.time&&document.activeElement!==ti&&ti.value!==t)ti.value=t;
+    var di=$('opDate');var ds=p.year+'-'+p.month+'-'+p.day;if(di&&!_opManual.date&&document.activeElement!==di&&di.value!==ds)di.value=ds;
+  }catch(e){}
 }
-tickClock();setInterval(tickClock,15000);
+tickClock();setInterval(tickClock,1000);   /* كل ثانية — خفيفة جداً، وبتضل حيّة بلا ما تحتاج تنقّل */
+document.addEventListener('visibilitychange',function(){if(!document.hidden)tickClock();});   /* رجعت للتطبيق؟ الساعة بتلحق فوراً */
 /* ── 📲 تثبيت التطبيق عالتلفون (PWA) ── */
 var _installEvt=null;
 window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();_installEvt=e;});

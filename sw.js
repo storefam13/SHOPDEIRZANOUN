@@ -6,7 +6,7 @@
    ⚠️ بدّل CACHE_VERSION مع كل deploy (مع APP_BUILD)
    ═══════════════════════════════════════════════════════ */
 const CACHE_PREFIX='mk2pro-';
-const CACHE_VERSION=CACHE_PREFIX+'v220';
+const CACHE_VERSION=CACHE_PREFIX+'v221';
 const CORE=['./','./index.html'];
 
 const CACHE_HOSTS=[
